@@ -45,10 +45,10 @@ impl Emulator {
         })
     }
 
-    pub fn run(&mut self) {
+    pub fn run(&mut self) -> Result<(), EmulatorError> {
         loop {
-            self.cpu.fetch();
-            self.cpu.execute();
+            self.cpu.fetch()?;
+            self.cpu.execute()?;
             std::thread::sleep(std::time::Duration::from_millis(250))
         }
     }

@@ -27,7 +27,7 @@ impl CpuRegisters {
             h: 0,
             l: 0,
             pc: 0x100,
-            sp: 0xff00,
+            sp: 0xFFFE,
         }
     }
     pub fn is_16bit_reg(register: Registers) -> bool {
