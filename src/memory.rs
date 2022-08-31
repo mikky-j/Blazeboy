@@ -96,6 +96,7 @@ impl Bus for Memory {
             }
         } else {
             //? MASTER INTERRUPT REGISTER
+            return self.io_registers.borrow_mut().read(address);
             // unimplemented!("Not yet implemented")
         }
         Ok(0)
@@ -145,7 +146,8 @@ impl Bus for Memory {
             }
         } else {
             //? MASTER INTERRUPT REGISTER
-            println!("Unsupported Writing to {:04x}", address)
+            // println!("Unsupported Writing to {:04x}", address)
+            return self.io_registers.borrow_mut().write(address, value);
         }
         Ok(())
     }

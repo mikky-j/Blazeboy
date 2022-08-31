@@ -8,6 +8,8 @@ pub struct IORegisters {
     serial_transfer: [u8; 2],
     // 0xFF04 - 0xFF07
     timer_divider: [u8; 4],
+    // 0xFF0F
+    interrupt_flag: u8,
     // 0xFF10 - 0xFF26
     sound: [u8; 23],
     // 0xFF30 - 0xFF3F
@@ -24,6 +26,8 @@ pub struct IORegisters {
     bg_palletes: [u8; 2],
     // 0xFF70
     wram_bank_select: u8,
+    // 0xFFFF
+    master_interrupt_enable: u8,
 }
 
 impl Bus for IORegisters {
@@ -37,6 +41,9 @@ impl Bus for IORegisters {
             0xFF04..=0xFF07 => {
                 let offset = address - 0xFF04;
                 return Ok(self.timer_divider[offset as usize]);
+            }
+            0xFF0F => {
+                return Ok(self.interrupt_flag)
             }
             0xFF10..=0xFF26 => {
                 let offset = address - 0xFF10;
@@ -61,10 +68,8 @@ impl Bus for IORegisters {
                 return Ok(self.bg_palletes[offset as usize]);
             }
             0xFF70 => return Ok(self.wram_bank_select),
-            _ => {
-                println!("Unsupported address {:02x}", address);
-                Ok(0)
-            }
+            0xFFFF => return Ok(self.master_interrupt_enable),
+            _ => Err(crate::MemoryError::InvalidRead(address)),
         }
     }
 
@@ -82,6 +87,10 @@ impl Bus for IORegisters {
             0xFF04..=0xFF07 => {
                 let offset = address - 0xFF04;
                 self.timer_divider[offset as usize] = value;
+                Ok(())
+            }
+            0xFF0F => {
+                self.interrupt_flag = value;
                 Ok(())
             }
             0xFF10..=0xFF26 => {
@@ -121,11 +130,15 @@ impl Bus for IORegisters {
                 self.wram_bank_select = value;
                 Ok(())
             }
-            // _ => Err(crate::MemoryError::InvalidWrite(address)),
-            _ => {
-                println!("Unsupported address {:02x}", address);
+            0xFFFF => {
+                self.master_interrupt_enable = value;
                 Ok(())
             }
+            _ => Err(crate::MemoryError::InvalidWrite(address)),
+            // _ => {
+            //     println!("Unsupported address {:02x}", address);
+            //     Ok(())
+            // }
         }
     }
 }
