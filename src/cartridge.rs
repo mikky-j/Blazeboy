@@ -188,7 +188,8 @@ impl Cartridge {
     }
 
     pub fn cart_write(&mut self, _address: u16, _value: u8) {
-        todo!("Need to handle rom banking");
+        // todo!("Need to handle rom banking");
+        println!("Unsupported writing to {}", _address);
     }
 
 

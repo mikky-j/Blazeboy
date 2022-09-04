@@ -26,8 +26,8 @@ impl CpuRegisters {
             f: 0,
             h: 0,
             l: 0,
-            pc: 0x100,
-            sp: 0xFFFE,
+            pc: 0,
+            sp: 0,
         }
     }
     pub fn is_16bit_reg(register: Registers) -> bool {
@@ -49,7 +49,7 @@ impl CpuRegisters {
             PC => self.pc,
             SP => self.sp,
             None => panic!("Register was not given"),
-            _ => panic!("Tried to read the 16 bit address of an 8 bit register"),
+            _ => panic!("Tried to read the 16 bit value of an 8 bit register"),
         };
         result
     }
@@ -83,7 +83,7 @@ impl CpuRegisters {
             H => self.h = value,
             L => self.l = value,
             None => panic!("Register was not given"),
-            _ => panic!("Tried to read the 16 bit address of an 8 bit register"),
+            _ => panic!("Tried to set the 8 bit value of a 16 bit register"),
         }
     }
 
@@ -97,7 +97,7 @@ impl CpuRegisters {
             PC => self.pc = value,
             SP => self.sp = value,
             None => panic!("Register was not given"),
-            _ => panic!("Tried to read the 16 bit address of an 8 bit register"),
+            _ => panic!("Tried to set the 16 bit value of an 8 bit register"),
         }
     }
 
