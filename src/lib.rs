@@ -3,10 +3,11 @@ mod cpu;
 mod cpu_registers;
 mod instruction;
 mod instruction_data;
-mod memory;
 mod io_registers;
+mod memory;
+mod ppu;
 
-use std::{cell::RefCell, fmt::Display, rc::Rc};
+use std::{cell::RefCell, fmt::Display, fs::File, io::BufReader, rc::Rc};
 
 use cartridge::{Cartridge, CartridgeError};
 use cpu::Cpu;
@@ -15,7 +16,7 @@ use memory::{Memory, MemoryError};
 /// This is a wrapper type that enables other modules to store a reference to the type T
 pub type Wrapper<T> = Rc<RefCell<T>>;
 
-pub enum EmulatorError{
+pub enum EmulatorError {
     CatridgeError(CartridgeError),
     MemoryError(MemoryError),
 }
@@ -34,22 +35,27 @@ pub struct Emulator {
 }
 
 impl Emulator {
-    pub fn new(filename: &str) -> Result<Self, EmulatorError> {
-        let cartridge = Cartridge::new(filename).map_err(|v| EmulatorError::CatridgeError(v))?;
+    pub fn new(cart_filename: &str) -> Result<Self, EmulatorError> {
+        let cartridge =
+            Cartridge::new(cart_filename).map_err(|v| EmulatorError::CatridgeError(v))?;
         let io_registers = Rc::new(RefCell::new(io_registers::IORegisters::default()));
-        let memory = Memory::new(cartridge, io_registers);
+        let boot_file = File::open("src/roms/boot.gb").map_err(|_| {
+            EmulatorError::CatridgeError(CartridgeError::FileDoesNotExist(format!(
+                "src/roms/boot.gb"
+            )))
+        })?;
+        let boot_rom = BufReader::with_capacity(256, boot_file);
+        let memory = Memory::new(cartridge, boot_rom, io_registers);
         let mem_ref = Rc::new(RefCell::new(memory));
         let cpu = Cpu::new(&mem_ref);
-        Ok(Emulator {
-            cpu,
-        })
+        Ok(Emulator { cpu })
     }
 
     pub fn run(&mut self) -> Result<(), EmulatorError> {
         loop {
             self.cpu.fetch()?;
             self.cpu.execute()?;
-            std::thread::sleep(std::time::Duration::from_millis(250))
+            // std::thread::sleep(std::time::Duration::from_millis(250))
         }
     }
 }
@@ -66,6 +72,10 @@ pub fn set_bit(value: u8, bit: u8, on: bool) -> u8 {
     }
 }
 
+/// This constructs a 16 bit value in the following way
+/// ```rust,noplayground
+/// hi_byte << 8 | lo_byte
+/// ```
 pub fn construct_16bit(val1: u8, val2: u8) -> u16 {
     (val1 as u16) << 8 | val2 as u16
 }
