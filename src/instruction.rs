@@ -1,6 +1,6 @@
 use crate::cpu_registers::{CpuRegisters, Flags, Registers};
 use crate::{get_bit, instruction_data::*};
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum InstructionConditions {
     None,
     C,
@@ -258,7 +258,7 @@ impl Instruction {
         res
     }
 
-    pub fn bit_8bit_base(registers: &mut CpuRegisters, value: u8, bit: u8) -> u8 {
+    pub fn bit_8bit_base(registers: &mut CpuRegisters, value: u8, bit: u8) {
         let res = get_bit(value, bit) ^ 0b1;
         let flags = [
             Flags::Zero(res == 1),
@@ -266,6 +266,5 @@ impl Instruction {
             Flags::HalfCarry(true),
         ];
         registers.set_flags(&flags);
-        res
     }
 }
