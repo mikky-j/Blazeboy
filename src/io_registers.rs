@@ -14,8 +14,6 @@ pub struct IORegisters {
     sound: [u8; 23],
     // 0xFF30 - 0xFF3F
     wave_pattern: [u8; 16],
-    // 0xFF40 - 0xFF4B
-    lcd_registers: [u8; 12],
     // 0xFF4F
     vram_bank_select: u8,
     // 0xFF50
@@ -52,10 +50,6 @@ impl Bus for IORegisters {
             0xFF30..=0xFF3F => {
                 let offset = address - 0xFF30;
                 return Ok(self.wave_pattern[offset as usize]);
-            }
-            0xFF40..=0xFF4B => {
-                let offset = address - 0xFF40;
-                return Ok(self.lcd_registers[offset as usize]);
             }
             0xFF4F => return Ok(self.vram_bank_select),
             0xFF50 => return Ok(self.boot_rom),
@@ -101,11 +95,6 @@ impl Bus for IORegisters {
             0xFF30..=0xFF3F => {
                 let offset = address - 0xFF30;
                 self.wave_pattern[offset as usize] = value;
-                Ok(())
-            }
-            0xFF40..=0xFF4B => {
-                let offset = address - 0xFF40;
-                self.lcd_registers[offset as usize] = value;
                 Ok(())
             }
             0xFF4F => {
