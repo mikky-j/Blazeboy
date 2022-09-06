@@ -1,20 +1,20 @@
 use crate::Bus;
 
 pub struct PPURegisters {
-    lcdc: u8,
-    stat: u8,
-    scx: u8,
-    scy: u8,
-    ly: u8,
-    lyc: u8,
-    dma: u8,
-    bgp: u8,
-    pallete_0: u8,
-    pallete_1: u8,
-    wx: u8,
-    wy: u8,
-    vram: [u8; 0x2000],
-    oam: [u8; 0xa0],
+    pub lcdc: u8,
+    pub stat: u8,
+    pub scx: u8,
+    pub scy: u8,
+    pub ly: u8,
+    pub lyc: u8,
+    pub dma: u8,
+    pub bgp: u8,
+    pub pallete_0: u8,
+    pub pallete_1: u8,
+    pub wx: u8,
+    pub wy: u8,
+    pub vram: [u8; 0x2000],
+    pub oam: [u8; 0xa0],
 }
 
 impl PPURegisters {
