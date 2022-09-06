@@ -39,11 +39,11 @@ impl<T> Cpu<T>
 where
     T: Bus,
 {
-    pub fn new(memory: &Wrapper<T>) -> Self {
+    pub fn new(memory: Wrapper<T>) -> Self {
         Cpu {
             halted: false,
             // stepping: true,
-            memory: Rc::clone(memory),
+            memory: memory,
             registers: CpuRegisters::new(),
             cb: false,
             opcode: 0,
@@ -62,6 +62,7 @@ where
     }
 
     fn write(&self, address: u16, value: u8) -> Result<(), EmulatorError> {
+        println!("Writing {value:02x} to {address:04x}");
         self.memory
             .borrow_mut()
             .write(address, value)
@@ -107,7 +108,10 @@ where
             self.registers.get_16bit(Registers::SP),
         );
         match self.instruction.instruction_type {
-            Nop => Ok(()),
+            Nop => {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                Ok(())
+            },
             Halt => self.halt(),
             Stop => self.stop(),
             Di => self.di(),
@@ -245,13 +249,13 @@ where
                 let address = self.registers.get_16bit(first_reg);
                 let value = self.registers.get_8bit(second_reg);
                 self.write(address, value)?;
-                self.registers.set_16bit(second_reg, address + 1);
+                self.registers.set_16bit(first_reg, address + 1);
             }
             HLD_Reg => {
                 let address = self.registers.get_16bit(first_reg);
                 let value = self.registers.get_8bit(second_reg);
                 self.write(address, value)?;
-                self.registers.set_16bit(second_reg, address - 1);
+                self.registers.set_16bit(first_reg, address - 1);
             }
             Reg_Reg_r8 => {
                 let offset = i8::from_le_bytes([self.fetch_data()?]);
@@ -304,15 +308,11 @@ where
         let first_reg = self.instruction.register1;
         match self.instruction.address_mode {
             Reg => {
-                if CpuRegisters::is_16bit_reg(first_reg) {
-                    let (hi, lo) = split_16bit(self.registers.get_16bit(first_reg));
-                    let sp = self.registers.get_16bit(Registers::SP);
-                    self.write(sp - 1, hi)?;
-                    self.write(sp - 2, lo)?;
-                    self.registers.set_16bit(Registers::SP, sp - 2);
-                } else {
-                    unsupported_params!(&self)
-                }
+                let (hi, lo) = split_16bit(self.registers.get_16bit(first_reg));
+                let sp = self.registers.get_16bit(Registers::SP);
+                self.write(sp - 1, hi)?;
+                self.write(sp - 2, lo)?;
+                self.registers.set_16bit(Registers::SP, sp - 2);
             }
             _ => unsupported_params!(&self),
         }
@@ -400,10 +400,10 @@ where
                 if self.registers.check_condition(self.instruction.cond_type) {
                     let sp = self.registers.get_16bit(Registers::SP);
                     let lo = self.read(sp)?;
-                    let hi = self.read(sp + 1)?;
+                    let hi = self.read(sp.wrapping_add(1))?;
                     let data = construct_16bit(hi, lo);
                     self.registers.set_16bit(Registers::PC, data);
-                    self.registers.set_16bit(Registers::SP, sp + 2);
+                    self.registers.set_16bit(Registers::SP, sp.wrapping_add(2));
                 }
             }
             _ => unsupported_params!(&self),
@@ -437,17 +437,21 @@ where
         Ok(())
     }
 
+    // Todo
     fn stop(&mut self) -> Result<(), EmulatorError> {
         Ok(())
     }
 
+    // Todo
     fn di(&mut self) -> Result<(), EmulatorError> {
         Ok(())
     }
 
+    // Todo
     fn ei(&mut self) -> Result<(), EmulatorError> {
         Ok(())
     }
+
     fn ccf(&mut self) -> Result<(), EmulatorError> {
         match self.instruction.address_mode {
             Impl => {
@@ -738,6 +742,7 @@ where
         Ok(())
     }
 
+    // Todo: Check if the implementation is correct
     fn adc(&mut self) -> Result<(), EmulatorError> {
         let reg_1 = self.instruction.register1;
         let reg_2 = self.instruction.register2;
@@ -794,6 +799,7 @@ where
         Ok(())
     }
 
+    // Todo: Check if the implementation is correct
     fn sbc(&mut self) -> Result<(), EmulatorError> {
         let reg_1 = self.instruction.register1;
         let reg_2 = self.instruction.register2;
@@ -1082,15 +1088,13 @@ where
             Reg => {
                 let value = self.registers.get_8bit(register);
                 let bit = ((row - 0x4) * 2) + if col > 0x7 { 1 } else { 0 };
-                let result = Instruction::bit_8bit_base(&mut self.registers, value, bit);
-                self.registers.set_8bit(register, result);
+                Instruction::bit_8bit_base(&mut self.registers, value, bit);
             }
             Memreg => {
                 let address = self.registers.get_16bit(register);
                 let value = self.read(address)?;
                 let bit = ((row - 0x4) * 2) + if col > 0x7 { 1 } else { 0 };
-                let result = Instruction::bit_8bit_base(&mut self.registers, value, bit);
-                self.write(address, result)?;
+             Instruction::bit_8bit_base(&mut self.registers, value, bit);
             }
             _ => unsupported_params!(&self),
         }
