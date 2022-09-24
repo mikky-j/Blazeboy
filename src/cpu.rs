@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::fmt::Display;
 
 use crate::{
     construct_16bit,
@@ -6,6 +6,9 @@ use crate::{
     get_bit,
     instruction::{Instruction, InstructionConditions},
     instruction_data::AddressingMode::*,
+    instruction_data::InstructionType,
+    interrupt::InterruptHandler,
+    memory::MemoryError,
     set_bit, split_16bit, Bus, EmulatorError, Wrapper,
 };
 
@@ -19,6 +22,39 @@ macro_rules! unsupported_params {
     };
 }
 
+/// This is an enum that holds all possible CPU Runtime Errors
+pub enum CpuError {
+    InvalidRegister(String),
+    MemoryError(MemoryError),
+}
+
+impl Display for CpuError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CpuError::InvalidRegister(v) => {
+                write!(f, "There was an error that involved a register\nError: {v}")
+            }
+            CpuError::MemoryError(v) => {
+                write!(f, "A MemoryError was thrown by Cpu.\nError: `{v}`")
+            }
+        }
+    }
+}
+
+impl Into<EmulatorError> for CpuError {
+    fn into(self) -> EmulatorError {
+        EmulatorError::CPUError(self)
+    }
+}
+
+impl Into<CpuError> for MemoryError {
+    fn into(self) -> CpuError {
+        CpuError::MemoryError(self)
+    }
+}
+
+type CpuResult<T> = Result<T, CpuError>;
+
 pub struct Cpu<T>
 where
     T: Bus,
@@ -29,10 +65,36 @@ where
     registers: CpuRegisters,
     opcode: u8,
     cb: bool,
+    ime: bool,
+    cycles: u8,
     // fetched_data: u8,
     // is_dest_mem: bool,
     instruction: Instruction,
     // mem_dest: Option<u16>,
+}
+
+impl<T> InterruptHandler<CpuError> for Cpu<T>
+where
+    T: Bus,
+{
+    fn handle_interrupt(&mut self, return_vector: u16) -> Result<(), CpuError> {
+        if self.ime {
+            // Pushing the current value of the program counter to the stack
+            let (hi, lo) = split_16bit(self.registers.get_16bit(Registers::PC));
+            let sp = self.registers.get_16bit(Registers::SP);
+            self.write(sp - 1, hi)?;
+            self.write(sp - 2, lo)?;
+            self.registers.set_16bit(Registers::SP, sp - 2);
+            self.registers.set_16bit(Registers::PC, return_vector);
+            // Setting the Interrupt Master Enable to false so that
+            self.ime = false;
+        }
+        Ok(())
+    }
+
+    fn get_interrupt_status(&self) -> bool {
+        self.ime
+    }
 }
 
 impl<T> Cpu<T>
@@ -43,7 +105,9 @@ where
         Cpu {
             halted: false,
             // stepping: true,
+            ime: true,
             memory: memory,
+            cycles: 0,
             registers: CpuRegisters::new(),
             cb: false,
             opcode: 0,
@@ -54,22 +118,19 @@ where
         }
     }
 
-    fn read(&self, address: u16) -> Result<u8, EmulatorError> {
-        self.memory
-            .borrow_mut()
-            .read(address)
-            .map_err(|v| EmulatorError::MemoryError(v))
+    fn read(&self, address: u16) -> CpuResult<u8> {
+        self.memory.borrow_mut().read(address).map_err(|e| e.into())
     }
 
-    fn write(&self, address: u16, value: u8) -> Result<(), EmulatorError> {
+    fn write(&self, address: u16, value: u8) -> CpuResult<()> {
         println!("Writing {value:02x} to {address:04x}");
         self.memory
             .borrow_mut()
             .write(address, value)
-            .map_err(|v| EmulatorError::MemoryError(v))
+            .map_err(|e| e.into())
     }
 
-    pub fn fetch(&mut self) -> Result<(), EmulatorError> {
+    pub fn fetch(&mut self) -> CpuResult<()> {
         self.opcode = self.fetch_data()?;
         if self.cb {
             self.instruction.update_cb(self.opcode);
@@ -80,38 +141,26 @@ where
         Ok(())
     }
 
-    fn fetch_data_16bit(&mut self) -> Result<u16, EmulatorError> {
+    fn fetch_data_16bit(&mut self) -> CpuResult<u16> {
         let lo = self.fetch_data()?;
         let hi = self.fetch_data()?;
         Ok(construct_16bit(hi, lo))
     }
 
-    fn fetch_data(&mut self) -> Result<u8, EmulatorError> {
+    fn fetch_data(&mut self) -> CpuResult<u8> {
         let pc = self.registers.get_16bit(Registers::PC);
         let data = self.read(pc)?;
         self.registers.set_16bit(Registers::PC, pc + 1);
         Ok(data)
     }
 
-    pub fn execute(&mut self) -> Result<(), EmulatorError> {
-        use crate::instruction_data::InstructionType::*;
-        println!("{:04x}: {:<5} ({:02x} {:02x} {:02x}) AF: {:04x} BC: {:04x} DE: {:04x} HL: {:04x} SP: {:04x}",
-            self.registers.get_16bit(Registers::PC) - 1,
-            self.instruction.instruction_type,
-            self.opcode,
-            self.read(self.registers.get_16bit(Registers::PC))?,
-            self.read(self.registers.get_16bit(Registers::PC)+1)?,
-            self.registers.get_16bit(Registers::AF),
-            self.registers.get_16bit(Registers::BC),
-            self.registers.get_16bit(Registers::DE),
-            self.registers.get_16bit(Registers::HL),
-            self.registers.get_16bit(Registers::SP),
-        );
+    fn execute_instruction(&mut self) -> CpuResult<()> {
+        use InstructionType::*;
         match self.instruction.instruction_type {
             Nop => {
                 std::thread::sleep(std::time::Duration::from_secs(1));
                 Ok(())
-            },
+            }
             Halt => self.halt(),
             Stop => self.stop(),
             Di => self.di(),
@@ -166,7 +215,38 @@ where
         }
     }
 
-    fn ld(&mut self) -> Result<(), EmulatorError> {
+    pub fn show_debug_output(&self) -> CpuResult<()> {
+        println!("{:04x}: {:<5} ({:02x} {:02x} {:02x}) AF: {:04x} BC: {:04x} DE: {:04x} HL: {:04x} SP: {:04x}",
+            self.registers.get_16bit(Registers::PC) - 1,
+            self.instruction.instruction_type,
+            self.opcode,
+            self.read(self.registers.get_16bit(Registers::PC))?,
+            self.read(self.registers.get_16bit(Registers::PC)+1)?,
+            self.registers.get_16bit(Registers::AF),
+            self.registers.get_16bit(Registers::BC),
+            self.registers.get_16bit(Registers::DE),
+            self.registers.get_16bit(Registers::HL),
+            self.registers.get_16bit(Registers::SP),
+        );
+        Ok(())
+    }
+
+    fn update_cycle(&mut self) {
+        self.cycles = self.instruction.get_instruction_cycle();
+    }
+
+    pub fn execute(&mut self) -> CpuResult<()> {
+        if self.cycles <= 1 {
+            self.show_debug_output()?;
+            self.fetch()?;
+            self.update_cycle();
+            self.execute_instruction()?;
+        }
+        self.cycles -= 1;
+        Ok(())
+    }
+
+    fn ld(&mut self) -> CpuResult<()> {
         let first_reg = self.instruction.register1;
         let second_reg = self.instruction.register2;
         match self.instruction.address_mode {
@@ -280,12 +360,12 @@ where
         Ok(())
     }
 
-    fn cb(&mut self) -> Result<(), EmulatorError> {
+    fn cb(&mut self) -> CpuResult<()> {
         self.cb = true;
         Ok(())
     }
 
-    fn ldh(&mut self) -> Result<(), EmulatorError> {
+    fn ldh(&mut self) -> CpuResult<()> {
         let first_reg = self.instruction.register1;
         let second_reg = self.instruction.register2;
         match self.instruction.address_mode {
@@ -304,7 +384,7 @@ where
         }
         Ok(())
     }
-    fn push(&mut self) -> Result<(), EmulatorError> {
+    fn push(&mut self) -> CpuResult<()> {
         let first_reg = self.instruction.register1;
         match self.instruction.address_mode {
             Reg => {
@@ -319,7 +399,7 @@ where
         Ok(())
     }
 
-    fn pop(&mut self) -> Result<(), EmulatorError> {
+    fn pop(&mut self) -> CpuResult<()> {
         let first_reg = self.instruction.register1;
         match self.instruction.address_mode {
             Reg => {
@@ -339,7 +419,7 @@ where
         Ok(())
     }
 
-    fn jp(&mut self) -> Result<(), EmulatorError> {
+    fn jp(&mut self) -> CpuResult<()> {
         let first_reg = self.instruction.register1;
         match self.instruction.address_mode {
             Reg => {
@@ -361,7 +441,7 @@ where
         Ok(())
     }
 
-    fn jr(&mut self) -> Result<(), EmulatorError> {
+    fn jr(&mut self) -> CpuResult<()> {
         match self.instruction.address_mode {
             r8 => {
                 if self.registers.check_condition(self.instruction.cond_type) {
@@ -376,7 +456,7 @@ where
         Ok(())
     }
 
-    fn call(&mut self) -> Result<(), EmulatorError> {
+    fn call(&mut self) -> CpuResult<()> {
         match self.instruction.address_mode {
             a16 => {
                 if self.registers.check_condition(self.instruction.cond_type) {
@@ -394,7 +474,7 @@ where
         Ok(())
     }
 
-    fn ret(&mut self) -> Result<(), EmulatorError> {
+    fn ret(&mut self) -> CpuResult<()> {
         match self.instruction.address_mode {
             Impl => {
                 if self.registers.check_condition(self.instruction.cond_type) {
@@ -411,11 +491,13 @@ where
         Ok(())
     }
 
-    fn reti(&mut self) -> Result<(), EmulatorError> {
+    fn reti(&mut self) -> CpuResult<()> {
+        self.ime = true;
+        self.ret()?;
         Ok(())
     }
 
-    fn rst(&mut self) -> Result<(), EmulatorError> {
+    fn rst(&mut self) -> CpuResult<()> {
         match self.instruction.address_mode {
             Impl => {
                 let pc = self.registers.get_16bit(Registers::PC);
@@ -432,27 +514,27 @@ where
         Ok(())
     }
 
-    fn halt(&mut self) -> Result<(), EmulatorError> {
+    fn halt(&mut self) -> CpuResult<()> {
         self.halted = true;
         Ok(())
     }
 
     // Todo
-    fn stop(&mut self) -> Result<(), EmulatorError> {
+    fn stop(&mut self) -> CpuResult<()> {
         Ok(())
     }
 
     // Todo
-    fn di(&mut self) -> Result<(), EmulatorError> {
+    fn di(&mut self) -> CpuResult<()> {
         Ok(())
     }
 
     // Todo
-    fn ei(&mut self) -> Result<(), EmulatorError> {
+    fn ei(&mut self) -> CpuResult<()> {
         Ok(())
     }
 
-    fn ccf(&mut self) -> Result<(), EmulatorError> {
+    fn ccf(&mut self) -> CpuResult<()> {
         match self.instruction.address_mode {
             Impl => {
                 let carry = self.registers.check_condition(InstructionConditions::C);
@@ -468,7 +550,7 @@ where
         Ok(())
     }
 
-    fn scf(&mut self) -> Result<(), EmulatorError> {
+    fn scf(&mut self) -> CpuResult<()> {
         match self.instruction.address_mode {
             Impl => {
                 let flags = [
@@ -484,7 +566,7 @@ where
     }
 
     // Don't ask me how I know this function is written like this coz I don't know
-    fn daa(&mut self) -> Result<(), EmulatorError> {
+    fn daa(&mut self) -> CpuResult<()> {
         let negative = self.registers.get_flag(Flags::Subtraction(true));
         let carry = self.registers.get_flag(Flags::Carry(true));
         let half_carry = self.registers.get_flag(Flags::HalfCarry(true));
@@ -516,7 +598,7 @@ where
         Ok(())
     }
 
-    fn cpl(&mut self) -> Result<(), EmulatorError> {
+    fn cpl(&mut self) -> CpuResult<()> {
         match self.instruction.address_mode {
             Impl => {
                 let flags = [Flags::Subtraction(true), Flags::HalfCarry(true)];
@@ -535,7 +617,7 @@ impl<T> Cpu<T>
 where
     T: Bus,
 {
-    fn inc(&mut self) -> Result<(), EmulatorError> {
+    fn inc(&mut self) -> CpuResult<()> {
         let register = self.instruction.register1;
         match self.instruction.address_mode {
             Reg => {
@@ -571,7 +653,7 @@ where
         Ok(())
     }
 
-    fn dec(&mut self) -> Result<(), EmulatorError> {
+    fn dec(&mut self) -> CpuResult<()> {
         let register = self.instruction.register1;
         match self.instruction.address_mode {
             Reg => {
@@ -607,13 +689,13 @@ where
         Ok(())
     }
 
-    fn rlca(&mut self) -> Result<(), EmulatorError> {
+    fn rlca(&mut self) -> CpuResult<()> {
         match self.instruction.address_mode {
             Impl => {
                 let value = self.registers.get_8bit(Registers::A);
                 let res = (value << 1) | value >> 7;
                 let flags = [
-                    Flags::Carry(get_bit(value, 7) == 1),
+                    Flags::Carry(get_bit!(value, 7) == 1),
                     Flags::Zero(false),
                     Flags::Subtraction(false),
                     Flags::HalfCarry(false),
@@ -625,7 +707,7 @@ where
         }
         Ok(())
     }
-    fn rrca(&mut self) -> Result<(), EmulatorError> {
+    fn rrca(&mut self) -> CpuResult<()> {
         match self.instruction.address_mode {
             Impl => {
                 let value = self.registers.get_8bit(Registers::A);
@@ -644,14 +726,14 @@ where
         Ok(())
     }
 
-    fn rla(&mut self) -> Result<(), EmulatorError> {
+    fn rla(&mut self) -> CpuResult<()> {
         match self.instruction.address_mode {
             Impl => {
                 let value = self.registers.get_8bit(Registers::A);
-                let res = value << 1 | get_bit(self.registers.get_8bit(Registers::F), 4);
+                let res = value << 1 | get_bit!(self.registers.get_8bit(Registers::F), 4);
                 self.registers.set_8bit(Registers::A, res);
                 let flags = [
-                    Flags::Carry(get_bit(value, 7) == 1),
+                    Flags::Carry(get_bit!(value, 7) == 1),
                     Flags::Zero(false),
                     Flags::Subtraction(false),
                     Flags::HalfCarry(false),
@@ -663,7 +745,7 @@ where
         Ok(())
     }
 
-    fn rra(&mut self) -> Result<(), EmulatorError> {
+    fn rra(&mut self) -> CpuResult<()> {
         match self.instruction.address_mode {
             Impl => {
                 let value = self.registers.get_8bit(Registers::A);
@@ -682,7 +764,7 @@ where
         Ok(())
     }
 
-    fn add(&mut self) -> Result<(), EmulatorError> {
+    fn add(&mut self) -> CpuResult<()> {
         let reg_1 = self.instruction.register1;
         let reg_2 = self.instruction.register2;
         match self.instruction.address_mode {
@@ -743,7 +825,7 @@ where
     }
 
     // Todo: Check if the implementation is correct
-    fn adc(&mut self) -> Result<(), EmulatorError> {
+    fn adc(&mut self) -> CpuResult<()> {
         let reg_1 = self.instruction.register1;
         let reg_2 = self.instruction.register2;
         match self.instruction.address_mode {
@@ -772,7 +854,7 @@ where
         Ok(())
     }
 
-    fn sub(&mut self) -> Result<(), EmulatorError> {
+    fn sub(&mut self) -> CpuResult<()> {
         let register = self.instruction.register1;
         match self.instruction.address_mode {
             Reg => {
@@ -800,7 +882,7 @@ where
     }
 
     // Todo: Check if the implementation is correct
-    fn sbc(&mut self) -> Result<(), EmulatorError> {
+    fn sbc(&mut self) -> CpuResult<()> {
         let reg_1 = self.instruction.register1;
         let reg_2 = self.instruction.register2;
         match self.instruction.address_mode {
@@ -827,7 +909,7 @@ where
         }
         Ok(())
     }
-    fn cp(&mut self) -> Result<(), EmulatorError> {
+    fn cp(&mut self) -> CpuResult<()> {
         let register = self.instruction.register1;
         match self.instruction.address_mode {
             Reg => {
@@ -851,7 +933,7 @@ where
         Ok(())
     }
 
-    fn and(&mut self) -> Result<(), EmulatorError> {
+    fn and(&mut self) -> CpuResult<()> {
         let register = self.instruction.register1;
         match self.instruction.address_mode {
             Reg => {
@@ -878,7 +960,7 @@ where
         Ok(())
     }
 
-    fn or(&mut self) -> Result<(), EmulatorError> {
+    fn or(&mut self) -> CpuResult<()> {
         let register = self.instruction.register1;
         match self.instruction.address_mode {
             Reg => {
@@ -905,7 +987,7 @@ where
         Ok(())
     }
 
-    fn xor(&mut self) -> Result<(), EmulatorError> {
+    fn xor(&mut self) -> CpuResult<()> {
         let register = self.instruction.register1;
         match self.instruction.address_mode {
             Reg => {
@@ -932,7 +1014,7 @@ where
         Ok(())
     }
 
-    fn rlc(&mut self) -> Result<(), EmulatorError> {
+    fn rlc(&mut self) -> CpuResult<()> {
         let register = self.instruction.register1;
         match self.instruction.address_mode {
             Reg => {
@@ -951,7 +1033,7 @@ where
         Ok(())
     }
 
-    fn rrc(&mut self) -> Result<(), EmulatorError> {
+    fn rrc(&mut self) -> CpuResult<()> {
         let register = self.instruction.register1;
         match self.instruction.address_mode {
             Reg => {
@@ -970,7 +1052,7 @@ where
         Ok(())
     }
 
-    fn rl(&mut self) -> Result<(), EmulatorError> {
+    fn rl(&mut self) -> CpuResult<()> {
         let register = self.instruction.register1;
         match self.instruction.address_mode {
             Reg => {
@@ -988,7 +1070,7 @@ where
         }
         Ok(())
     }
-    fn rr(&mut self) -> Result<(), EmulatorError> {
+    fn rr(&mut self) -> CpuResult<()> {
         let register = self.instruction.register1;
         match self.instruction.address_mode {
             Reg => {
@@ -1006,7 +1088,7 @@ where
         }
         Ok(())
     }
-    fn sla(&mut self) -> Result<(), EmulatorError> {
+    fn sla(&mut self) -> CpuResult<()> {
         let register = self.instruction.register1;
         match self.instruction.address_mode {
             Reg => {
@@ -1024,7 +1106,7 @@ where
         }
         Ok(())
     }
-    fn sra(&mut self) -> Result<(), EmulatorError> {
+    fn sra(&mut self) -> CpuResult<()> {
         let register = self.instruction.register1;
         match self.instruction.address_mode {
             Reg => {
@@ -1043,7 +1125,7 @@ where
         Ok(())
     }
 
-    fn swap(&mut self) -> Result<(), EmulatorError> {
+    fn swap(&mut self) -> CpuResult<()> {
         let register = self.instruction.register1;
         match self.instruction.address_mode {
             Reg => {
@@ -1062,7 +1144,7 @@ where
         Ok(())
     }
 
-    fn srl(&mut self) -> Result<(), EmulatorError> {
+    fn srl(&mut self) -> CpuResult<()> {
         let register = self.instruction.register1;
         match self.instruction.address_mode {
             Reg => {
@@ -1081,7 +1163,7 @@ where
         Ok(())
     }
 
-    fn bit(&mut self) -> Result<(), EmulatorError> {
+    fn bit(&mut self) -> CpuResult<()> {
         let register = self.instruction.register1;
         let (row, col) = (self.opcode >> 4, self.opcode & 0xf);
         match self.instruction.address_mode {
@@ -1094,21 +1176,21 @@ where
                 let address = self.registers.get_16bit(register);
                 let value = self.read(address)?;
                 let bit = ((row - 0x4) * 2) + if col > 0x7 { 1 } else { 0 };
-             Instruction::bit_8bit_base(&mut self.registers, value, bit);
+                Instruction::bit_8bit_base(&mut self.registers, value, bit);
             }
             _ => unsupported_params!(&self),
         }
         Ok(())
     }
 
-    fn res(&mut self) -> Result<(), EmulatorError> {
+    fn res(&mut self) -> CpuResult<()> {
         let register = self.instruction.register1;
         let (row, col) = (self.opcode >> 4, self.opcode & 0xf);
         match self.instruction.address_mode {
             Reg => {
                 let value = self.registers.get_8bit(register);
                 let bit = ((row - 0x8) * 2) + if col > 0x7 { 1 } else { 0 };
-                let result = if get_bit(value, bit) != 0 {
+                let result = if get_bit!(value, bit) != 0 {
                     value ^ (1 << bit)
                 } else {
                     value
@@ -1119,7 +1201,7 @@ where
                 let address = self.registers.get_16bit(register);
                 let value = self.read(address)?;
                 let bit = ((row - 0x8) * 2) + if col > 0x7 { 1 } else { 0 };
-                let result = if get_bit(value, bit) != 0 {
+                let result = if get_bit!(value, bit) != 0 {
                     value ^ (1 << bit)
                 } else {
                     value
@@ -1131,21 +1213,21 @@ where
         Ok(())
     }
 
-    fn set(&mut self) -> Result<(), EmulatorError> {
+    fn set(&mut self) -> CpuResult<()> {
         let register = self.instruction.register1;
         let (row, col) = (self.opcode >> 4, self.opcode & 0xf);
         match self.instruction.address_mode {
             Reg => {
                 let value = self.registers.get_8bit(register);
                 let bit = ((row - 0xc) * 2) + if col > 0x7 { 1 } else { 0 };
-                let result = set_bit(value, bit, true);
+                let result = set_bit!(value, bit, true);
                 self.registers.set_8bit(register, result);
             }
             Memreg => {
                 let address = self.registers.get_16bit(register);
                 let value = self.read(address)?;
                 let bit = ((row - 0xc) * 2) + if col > 0x7 { 1 } else { 0 };
-                let result = set_bit(value, bit, true);
+                let result = set_bit!(value, bit, true);
                 self.write(address, result)?;
             }
             _ => unsupported_params!(&self),

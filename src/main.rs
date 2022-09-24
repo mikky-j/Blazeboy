@@ -9,8 +9,9 @@ fn main() {
             return;
         }
     };
+
     match emulator.run() {
-        Ok(()) => {},
-        Err(v) => println!("{v}")
+        Ok(()) => {}
+        Err(v) => println!("{v}"),
     }
 }

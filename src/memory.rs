@@ -1,4 +1,4 @@
-use std::{fs::File, io::BufReader};
+use std::{fmt::Display, fs::File, io::BufReader};
 
 use crate::{
     cartridge::{Cartridge, CartridgeError},
@@ -14,17 +14,20 @@ pub enum MemoryError {
     CartridgeError(CartridgeError),
 }
 
-impl MemoryError {
-    pub fn output(&self) -> String {
-        match self {
+impl Display for MemoryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let output = match self {
             Self::InvalidRead(address) => {
                 format!("You tried to access `0x{address:04x}` which is not meant to be read from")
             }
             Self::InvalidWrite(address) => format!(
                 "You tried to write to `0x{address:04x}` which is not a valid write address",
             ),
-            Self::CartridgeError(v) => format!("{v}"),
-        }
+            Self::CartridgeError(v) => {
+                format!("A CatridgeError was thrown by Memory.\nError:`{v}`")
+            }
+        };
+        output.fmt(f)
     }
 }
 pub struct Memory {

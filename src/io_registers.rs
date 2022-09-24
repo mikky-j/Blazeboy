@@ -1,31 +1,88 @@
-use crate::Bus;
+use crate::{get_bit, interrupt::InterruptSource, set_bit, Bus, InterruptRef};
 
 #[derive(Default)]
 pub struct IORegisters {
+    interrupt: Option<InterruptRef>,
     // 0xFF00
-    joypad_input: u8,
+    pub joypad_input: u8,
     // 0xFF01 - 0xFF02
-    serial_transfer: [u8; 2],
+    pub serial_transfer: [u8; 2],
     // 0xFF04 - 0xFF07
-    timer_divider: [u8; 4],
+    pub timer_divider: [u8; 4],
     // 0xFF0F
-    interrupt_flag: u8,
+    pub interrupt_flag: u8,
     // 0xFF10 - 0xFF26
-    sound: [u8; 23],
+    pub sound: [u8; 23],
     // 0xFF30 - 0xFF3F
-    wave_pattern: [u8; 16],
+    pub wave_pattern: [u8; 16],
     // 0xFF4F
-    vram_bank_select: u8,
+    pub vram_bank_select: u8,
     // 0xFF50
-    boot_rom: u8,
+    pub boot_rom: u8,
     // 0xFF51 - 0xFF55
-    vram_dma: [u8; 5],
+    pub vram_dma: [u8; 5],
     // 0xFF68 - 0xFF69
-    bg_palletes: [u8; 2],
+    pub bg_palletes: [u8; 2],
     // 0xFF70
-    wram_bank_select: u8,
+    pub wram_bank_select: u8,
     // 0xFFFF
-    master_interrupt_enable: u8,
+    pub interrupt_enable: u8,
+}
+
+impl IORegisters {
+    pub fn add_interrupt_handler(&mut self, interrupt: InterruptRef) {
+        self.interrupt = Some(interrupt);
+    }
+
+    /// This method takes an interrupt source and checks if the bit from the "Interrupt Enable" register is set for that interrupt
+    pub fn check_interrupt_enable(&self, interrupt: InterruptSource) -> bool {
+        use InterruptSource::*;
+        let bit = match interrupt {
+            Vblank => 0,
+            LcdStat => 1,
+            Timer => 2,
+            Serial => 3,
+            Joypad => 4,
+        };
+        get_bit!(self.interrupt_enable, bit) == 1
+    }
+
+    /// This clears the bit of the interrupt source in the `IF` register
+    pub fn clear_interrupt_bit(&mut self, interrupt: InterruptSource) {
+        use InterruptSource::*;
+        let bit = match interrupt {
+            Vblank => 0,
+            LcdStat => 1,
+            Timer => 2,
+            Serial => 3,
+            Joypad => 4,
+        };
+        self.interrupt_flag = set_bit!(self.interrupt_flag, bit, false);
+    }
+
+    pub fn handle_interrupt(&mut self, interrupt_data: u8) {
+        use InterruptSource::*;
+        let get_source_from_bits = |data: u8| match data {
+            0 => Vblank,
+            1 => LcdStat,
+            2 => Timer,
+            3 => Serial,
+            4 => Joypad,
+            _ => panic!("An error occurred"),
+        };
+        let mut interrupt_sources = Vec::with_capacity(5);
+        for i in 0..=4 {
+            if get_bit!(interrupt_data, i) == 1 {
+                interrupt_sources.push(get_source_from_bits(i));
+            }
+        }
+
+        self.interrupt
+            .clone()
+            .unwrap()
+            .borrow_mut()
+            .add_sources(interrupt_sources)
+    }
 }
 
 impl Bus for IORegisters {
@@ -40,9 +97,7 @@ impl Bus for IORegisters {
                 let offset = address - 0xFF04;
                 return Ok(self.timer_divider[offset as usize]);
             }
-            0xFF0F => {
-                return Ok(self.interrupt_flag)
-            }
+            0xFF0F => return Ok(self.interrupt_flag),
             0xFF10..=0xFF26 => {
                 let offset = address - 0xFF10;
                 return Ok(self.sound[offset as usize]);
@@ -62,7 +117,7 @@ impl Bus for IORegisters {
                 return Ok(self.bg_palletes[offset as usize]);
             }
             0xFF70 => return Ok(self.wram_bank_select),
-            0xFFFF => return Ok(self.master_interrupt_enable),
+            0xFFFF => return Ok(self.interrupt_enable),
             _ => Err(crate::MemoryError::InvalidRead(address)),
         }
     }
@@ -85,6 +140,7 @@ impl Bus for IORegisters {
             }
             0xFF0F => {
                 self.interrupt_flag = value;
+                self.handle_interrupt(value);
                 Ok(())
             }
             0xFF10..=0xFF26 => {
@@ -120,7 +176,7 @@ impl Bus for IORegisters {
                 Ok(())
             }
             0xFFFF => {
-                self.master_interrupt_enable = value;
+                self.interrupt_enable = value;
                 Ok(())
             }
             _ => Err(crate::MemoryError::InvalidWrite(address)),

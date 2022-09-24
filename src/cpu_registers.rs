@@ -104,10 +104,10 @@ impl CpuRegisters {
     pub fn set_flags(&mut self, flags: &[Flags]) {
         for flag in flags {
             match *flag {
-                Flags::Carry(x) => self.f = set_bit(self.f, 4, x),
-                Flags::HalfCarry(x) => self.f = set_bit(self.f, 5, x),
-                Flags::Subtraction(x) => self.f = set_bit(self.f, 6, x),
-                Flags::Zero(x) => self.f = set_bit(self.f, 7, x),
+                Flags::Carry(x) => self.f = set_bit!(self.f, 4, x),
+                Flags::HalfCarry(x) => self.f = set_bit!(self.f, 5, x),
+                Flags::Subtraction(x) => self.f = set_bit!(self.f, 6, x),
+                Flags::Zero(x) => self.f = set_bit!(self.f, 7, x),
             }
         }
     }
@@ -115,10 +115,10 @@ impl CpuRegisters {
     pub fn check_condition(&self, condition: InstructionConditions) -> bool {
         use InstructionConditions::*;
         match condition {
-            C => get_bit(self.f, 4) == 1,
-            Z => get_bit(self.f, 7) == 1,
-            NC => get_bit(self.f, 4) == 0,
-            NZ => get_bit(self.f, 7) == 0,
+            C => get_bit!(self.f, 4) == 1,
+            Z => get_bit!(self.f, 7) == 1,
+            NC => get_bit!(self.f, 4) == 0,
+            NZ => get_bit!(self.f, 7) == 0,
             None => true,
         }
     }
@@ -126,10 +126,10 @@ impl CpuRegisters {
     pub fn get_flag(&self, flag: Flags) -> bool {
         use Flags::*;
         match flag {
-            Zero(_) => get_bit(self.f, 7) == 1,
-            Subtraction(_) => get_bit(self.f, 6) == 1,
-            HalfCarry(_) => get_bit(self.f, 5) == 1,
-            Carry(_) => get_bit(self.f, 4) == 1,
+            Zero(_) => get_bit!(self.f, 7) == 1,
+            Subtraction(_) => get_bit!(self.f, 6) == 1,
+            HalfCarry(_) => get_bit!(self.f, 5) == 1,
+            Carry(_) => get_bit!(self.f, 4) == 1,
         }
     }
 }

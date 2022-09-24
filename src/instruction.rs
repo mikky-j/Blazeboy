@@ -56,6 +56,61 @@ impl Instruction {
         self.cond_type = InstructionConditions::None;
     }
 
+    /// This method returns how many cycles an instruction would take by using it's addressing mode
+    //TODO: CROSSCHECK THIS WITH THE GBDEV INSTRUCTION SET
+    pub fn get_instruction_cycle(&self) -> u8 {
+        match self.address_mode {
+            AddressingMode::Impl => 1,
+            AddressingMode::Reg_d16 => 3,
+            AddressingMode::Memreg_Reg => 2,
+            AddressingMode::Reg => {
+                if CpuRegisters::is_16bit_reg(self.register1) {
+                    2
+                } else {
+                    1
+                }
+            }
+            AddressingMode::Reg_d8 => 2,
+            AddressingMode::a16_Reg => {
+                if self.instruction_type == InstructionType::Ld {
+                    5
+                } else {
+                    4
+                }
+            }
+            AddressingMode::Reg_Reg => {
+                if CpuRegisters::is_16bit_reg(self.register1) {
+                    2
+                } else {
+                    1
+                }
+            }
+
+            AddressingMode::Reg_Memreg => 2,
+            AddressingMode::d8 => 2,
+            // False Cyle for this addressing mode is 8
+            AddressingMode::r8 => 3,
+            AddressingMode::HLI_Reg => 2,
+            AddressingMode::Reg_HLI => 2,
+            AddressingMode::HLD_Reg => 2,
+            AddressingMode::Memreg => 2,
+            AddressingMode::Memreg_d8 => 3,
+            AddressingMode::Reg_HLD => 2,
+            AddressingMode::a16 => {
+                if self.instruction_type == InstructionType::Call {
+                    6
+                } else {
+                    4
+                }
+            }
+            AddressingMode::a8_Reg => 3,
+            AddressingMode::Reg_r8 => 4,
+            AddressingMode::Reg_a8 => 3,
+            AddressingMode::Reg_Reg_r8 => 3,
+            AddressingMode::Reg_a16 => 4,
+        }
+    }
+
     // Some Default implementation of some functions
     // I did this in order to avoid code duplication
     // plus this makes it easiter if I want to change how an instruction works internally
@@ -159,7 +214,7 @@ impl Instruction {
     pub fn rlc_8bit_base(registers: &mut CpuRegisters, value: u8) -> u8 {
         let res = value << 1 | value >> 7;
         let flags = [
-            Flags::Carry(get_bit(value, 7) == 1),
+            Flags::Carry(get_bit!(value, 7) == 1),
             Flags::Zero(res == 0),
             Flags::Subtraction(false),
             Flags::HalfCarry(false),
@@ -176,7 +231,7 @@ impl Instruction {
                 0
             };
         let flags = [
-            Flags::Carry(get_bit(value, 7) == 1),
+            Flags::Carry(get_bit!(value, 7) == 1),
             Flags::Zero(res == 0),
             Flags::Subtraction(false),
             Flags::HalfCarry(false),
@@ -188,7 +243,7 @@ impl Instruction {
     pub fn rrc_8bit_base(registers: &mut CpuRegisters, value: u8) -> u8 {
         let res = (value & 1) << 7 | value >> 1;
         let flags = [
-            Flags::Carry(get_bit(value, 0) == 1),
+            Flags::Carry(get_bit!(value, 0) == 1),
             Flags::Zero(res == 0),
             Flags::Subtraction(false),
             Flags::HalfCarry(false),
@@ -203,7 +258,7 @@ impl Instruction {
             0
         } | value >> 7;
         let flags = [
-            Flags::Carry(get_bit(value, 0) == 1),
+            Flags::Carry(get_bit!(value, 0) == 1),
             Flags::Zero(res == 0),
             Flags::Subtraction(false),
             Flags::HalfCarry(false),
@@ -215,7 +270,7 @@ impl Instruction {
     pub fn sla_8bit_base(registers: &mut CpuRegisters, value: u8) -> u8 {
         let res = value << 1;
         let flags = [
-            Flags::Carry(get_bit(value, 7) == 1),
+            Flags::Carry(get_bit!(value, 7) == 1),
             Flags::Zero(res == 0),
             Flags::Subtraction(false),
             Flags::HalfCarry(false),
@@ -225,9 +280,9 @@ impl Instruction {
     }
 
     pub fn sra_8bit_base(registers: &mut CpuRegisters, value: u8) -> u8 {
-        let res = get_bit(value, 7) << 7 | value >> 1;
+        let res = get_bit!(value, 7) << 7 | value >> 1;
         let flags = [
-            Flags::Carry(get_bit(value, 0) == 1),
+            Flags::Carry(get_bit!(value, 0) == 1),
             Flags::Zero(res == 0),
             Flags::Subtraction(false),
             Flags::HalfCarry(false),
@@ -238,7 +293,7 @@ impl Instruction {
     pub fn srl_8bit_base(registers: &mut CpuRegisters, value: u8) -> u8 {
         let res = value >> 1;
         let flags = [
-            Flags::Carry(get_bit(value, 0) == 1),
+            Flags::Carry(get_bit!(value, 0) == 1),
             Flags::Zero(res == 0),
             Flags::Subtraction(false),
             Flags::HalfCarry(false),
@@ -259,7 +314,7 @@ impl Instruction {
     }
 
     pub fn bit_8bit_base(registers: &mut CpuRegisters, value: u8, bit: u8) {
-        let res = get_bit(value, bit) ^ 0b1;
+        let res = get_bit!(value, bit) ^ 0b1;
         let flags = [
             Flags::Zero(res == 1),
             Flags::Subtraction(false),
