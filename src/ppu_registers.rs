@@ -26,7 +26,7 @@ impl PPURegisters {
             scy: 0,
             ly: 0,
             lyc: 0,
-            dma: 0,
+            dma: 0xFF,
             bgp: 0,
             pallete_0: 0,
             pallete_1: 0,
@@ -61,7 +61,7 @@ impl Bus for PPURegisters {
             0xFF49 => self.pallete_1,
             0xFF4A => self.wx,
             0xFF4B => self.wy,
-            _ => return Err(crate::MemoryError::InvalidRead(address))
+            _ => return Err(crate::MemoryError::InvalidRead(address)),
         };
         Ok(value)
     }
@@ -88,8 +88,8 @@ impl Bus for PPURegisters {
             0xFF49 => self.pallete_1 = value,
             0xFF4A => self.wx = value,
             0xFF4B => self.wy = value,
-            _ => return Err(crate::MemoryError::InvalidRead(address))
+            _ => return Err(crate::MemoryError::InvalidRead(address)),
         }
         Ok(())
     }
-} 
+}
