@@ -79,7 +79,7 @@ impl Emulator {
         io_registers
             .borrow_mut()
             .add_interrupt_handler(interrupt_ref.clone());
-        let ppu = Ppu::new(ppu_registers.clone());
+        let ppu = Ppu::new(ppu_registers.clone(), interrupt_ref.clone());
         Ok(Emulator {
             cpu: cpu_ref,
             ppu,
@@ -89,22 +89,19 @@ impl Emulator {
 
     pub fn run(&mut self) -> Result<(), EmulatorError> {
         loop {
-            self.cpu.borrow_mut().execute().map_err(|e| e.into())?;
+            self.cpu.borrow_mut().execute()?;
             self.ppu.execute().map_err(|v| EmulatorError::PPUError(v))?;
-            self.master_interrupt
-                .borrow_mut()
-                .handle_interrupt()
-                .map_err(|e| e.into())?;
+            self.master_interrupt.borrow_mut().handle_interrupt()?
             // std::thread::sleep(std::time::Duration::from_millis(250))
         }
     }
 }
 
 /// This is a macro that gets a bit of a number
-/// ```rust,norun
-/// use crate::get_bit;
+/// ```rust
+/// use gameboy_emulator::get_bit;
 /// fn main() {
-///     let number: u8 = 0b11111111;
+///     let number: u8 = 0b11111011;
 ///     assert_eq!(get_bit!(number, 3), 0b1);
 /// }
 /// ```
@@ -116,11 +113,12 @@ macro_rules! get_bit {
 }
 
 /// This is a macro that sets a bit of a number either to 1 or 0
-/// ```rust,norun
-/// use gameboy_emulator::clear_bits;
+/// ```rust
+/// use gameboy_emulator::{clear_bits, get_bits};
+/// use gameboy_emulator::set_bit;
 /// fn main() {
 ///     let number: u8 = 0b11111111;
-///     assert_eq!(set_bit!(number, 3), 0b11110111);
+///     assert_eq!(set_bit!(number, 3, false), 0b11111011);
 /// }
 /// ```
 #[macro_export]
@@ -130,7 +128,7 @@ macro_rules! set_bit {
         if $on {
             $value | 1 << $bit
         } else {
-            let end = get_bits!($value, $bit);
+            let end = get_bits!($value, if $bit > 0 { $bit - 1 } else { $bit });
             clear_bits!($value, $bit) | end
         }
     }};
@@ -138,9 +136,10 @@ macro_rules! set_bit {
 
 /// This is a macro that gets all the bits of a number up until a particular bit position
 /// ```rust
+/// use gameboy_emulator::get_bits;
 /// fn main() {
 ///     let number: u8 = 0b11111111;
-///     assert_eq!(clear_bits!(number, 3), 0b111);
+///     assert_eq!(get_bits!(number, 3), 0b111);
 /// }
 /// ```
 #[macro_export]
@@ -152,9 +151,10 @@ macro_rules! get_bits {
 
 /// This is a macro that clears all the bits of a number up until a particular bit position
 /// ```rust
+/// use gameboy_emulator::clear_bits;
 /// fn main() {
-///     let number: u8 = 0b11111111;
-///     assert_eq!(clear_bits!(number, 6), 0b10000000);
+///     let number: u8 = 0b1111111;
+///     assert_eq!(clear_bits!(number, 6), 0b1000000);
 /// }
 /// ```
 #[macro_export]
