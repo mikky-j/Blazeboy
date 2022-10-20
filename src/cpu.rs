@@ -12,7 +12,6 @@ use crate::{
     set_bit, split_16bit, Bus, EmulatorError, Wrapper,
 };
 
-#[macro_export]
 macro_rules! unsupported_params {
     ($x: expr) => {
         panic!(
@@ -41,15 +40,15 @@ impl Display for CpuError {
     }
 }
 
-impl Into<EmulatorError> for CpuError {
-    fn into(self) -> EmulatorError {
-        EmulatorError::CPUError(self)
+impl From<CpuError> for EmulatorError {
+    fn from(value: CpuError) -> Self {
+        EmulatorError::CPUError(value)
     }
 }
 
-impl Into<CpuError> for MemoryError {
-    fn into(self) -> CpuError {
-        CpuError::MemoryError(self)
+impl From<MemoryError> for CpuError {
+    fn from(value: MemoryError) -> Self {
+        Self::MemoryError(value)
     }
 }
 
@@ -118,16 +117,30 @@ where
         }
     }
 
+    fn handle_dma_transfer(&mut self) -> CpuResult<()> {
+        let value = self.read(0xFF46)? as u16;
+        if value <= 0xDF {
+            println!("ENTERED DMA TRANSFER");
+            let start_address = value << 8;
+            for address in 0..0x100 {
+                let data = self.read(start_address + address)?;
+                self.write(0xFF00 + address, data)?;
+            }
+            self.write(0xFF46, 0xFF)?;
+            self.cycles += 40;
+        }
+        Ok(())
+    }
+
     fn read(&self, address: u16) -> CpuResult<u8> {
-        self.memory.borrow_mut().read(address).map_err(|e| e.into())
+        let result = self.memory.borrow_mut().read(address)?;
+        Ok(result)
     }
 
     fn write(&self, address: u16, value: u8) -> CpuResult<()> {
         println!("Writing {value:02x} to {address:04x}");
-        self.memory
-            .borrow_mut()
-            .write(address, value)
-            .map_err(|e| e.into())
+        self.memory.borrow_mut().write(address, value)?;
+        Ok(())
     }
 
     pub fn fetch(&mut self) -> CpuResult<()> {
@@ -237,10 +250,11 @@ where
 
     pub fn execute(&mut self) -> CpuResult<()> {
         if self.cycles <= 1 {
-            self.show_debug_output()?;
             self.fetch()?;
+            self.show_debug_output()?;
             self.update_cycle();
             self.execute_instruction()?;
+            self.handle_dma_transfer()?;
         }
         self.cycles -= 1;
         Ok(())
