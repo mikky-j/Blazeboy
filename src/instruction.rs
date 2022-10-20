@@ -1,3 +1,5 @@
+use std::vec;
+
 use crate::cpu_registers::{CpuRegisters, Flags, Registers};
 use crate::{get_bit, instruction_data::*};
 #[derive(Clone, Copy, Debug)]
@@ -146,7 +148,8 @@ impl Instruction {
     }
 
     pub fn sub_8bit_base(registers: &mut CpuRegisters, val_1: u8, val_2: u8) -> u8 {
-        let half_carry = (((val_1 as i16) & 0xf) - ((val_2 as i16) & 0xf)) & 0x10 == 0x10;
+        // let half_carry = (((val_1 as i16) & 0xf) - ((val_2 as i16) & 0xf)) & 0x10 == 0x10;
+        let half_carry = (val_1 & 0xf).wrapping_sub(val_2 & 0xf) & 0x10 != 0;
         let (value, carry) = val_1.overflowing_sub(val_2);
         let flags = [
             Flags::HalfCarry(half_carry),
@@ -159,18 +162,18 @@ impl Instruction {
     }
 
     pub fn sbc_8bit_base(registers: &mut CpuRegisters, val_1: u8, val_2: u8) -> u8 {
-        let prev_carry_flag = registers.get_flag(Flags::Carry(true));
-        let mut result = Instruction::sub_8bit_base(registers, val_1, val_2);
-        let prev_half_carry_flag = registers.get_flag(Flags::HalfCarry(true));
-
-        if prev_carry_flag {
-            result = Instruction::sub_8bit_base(registers, result, 1);
-        }
-        let current_half_carry_flag = registers.get_flag(Flags::HalfCarry(true));
-        let current_carry_flag = registers.get_flag(Flags::Carry(true));
-        let flags = [
-            Flags::Carry(prev_half_carry_flag & current_carry_flag),
-            Flags::HalfCarry(prev_half_carry_flag | current_half_carry_flag),
+        let previous_carry = registers.get_flag(Flags::Carry(true)) as u8;
+        let result = val_1.wrapping_sub(val_2).wrapping_sub(previous_carry);
+        let half_carry = (val_1 & 0xf)
+            .wrapping_sub(val_2 & 0xf)
+            .wrapping_sub(previous_carry)
+            & 0x10
+            != 0;
+        let flags = vec![
+            Flags::Carry(val_1 < (val_2 + previous_carry)),
+            Flags::HalfCarry(half_carry),
+            Flags::Zero(result == 0),
+            Flags::Subtraction(true),
         ];
         registers.set_flags(&flags);
         result
@@ -212,7 +215,7 @@ impl Instruction {
         result
     }
     pub fn rlc_8bit_base(registers: &mut CpuRegisters, value: u8) -> u8 {
-        let res = value << 1 | value >> 7;
+        let res = value.rotate_left(1);
         let flags = [
             Flags::Carry(get_bit!(value, 7) == 1),
             Flags::Zero(res == 0),
@@ -224,12 +227,8 @@ impl Instruction {
     }
 
     pub fn rl_8bit_base(registers: &mut CpuRegisters, value: u8) -> u8 {
-        let res = value << 1
-            | if registers.get_flag(Flags::Carry(true)) {
-                1
-            } else {
-                0
-            };
+        let carry = registers.get_flag(Flags::Carry(true)) as u8;
+        let res = value << 1 | carry;
         let flags = [
             Flags::Carry(get_bit!(value, 7) == 1),
             Flags::Zero(res == 0),
@@ -241,7 +240,7 @@ impl Instruction {
     }
 
     pub fn rrc_8bit_base(registers: &mut CpuRegisters, value: u8) -> u8 {
-        let res = (value & 1) << 7 | value >> 1;
+        let res = value.rotate_right(1);
         let flags = [
             Flags::Carry(get_bit!(value, 0) == 1),
             Flags::Zero(res == 0),
@@ -252,11 +251,8 @@ impl Instruction {
         res
     }
     pub fn rr_8bit_base(registers: &mut CpuRegisters, value: u8) -> u8 {
-        let res = if registers.get_flag(Flags::Carry(true)) {
-            1
-        } else {
-            0
-        } | value >> 7;
+        let carry = (registers.get_flag(Flags::Carry(true)) as u8) << 7;
+        let res = carry | value >> 1;
         let flags = [
             Flags::Carry(get_bit!(value, 0) == 1),
             Flags::Zero(res == 0),
@@ -280,7 +276,7 @@ impl Instruction {
     }
 
     pub fn sra_8bit_base(registers: &mut CpuRegisters, value: u8) -> u8 {
-        let res = get_bit!(value, 7) << 7 | value >> 1;
+        let res = (get_bit!(value, 7) << 7) | value >> 1;
         let flags = [
             Flags::Carry(get_bit!(value, 0) == 1),
             Flags::Zero(res == 0),
