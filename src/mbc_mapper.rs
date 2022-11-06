@@ -9,22 +9,6 @@ pub enum MbcRegister {
     Mbc2 { romb: u8 },
 }
 
-// union MbcRegisterUnion {
-//     mbc1: (u8, u8),
-//     mbc2: u8,
-// }
-
-// impl MbcRegisterUnion {
-//     fn get_register(mbc: CatridgeType) -> Self {
-//         use CatridgeType::*;
-//         match mbc {
-//             Mbc1 => Self { mbc1: (0, 0) },
-//             Mbc2 => Self {mbc2: 0},
-//             _ => panic!("Cannot get the register for an unsupported Mbc: `{mbc}`")
-//         }
-//     }
-// }
-
 impl MbcRegister {
     fn get_register(mbc: CatridgeType) -> Self {
         use CatridgeType::*;
@@ -152,17 +136,12 @@ impl<'a> MbcMapper {
 #[cfg(test)]
 mod test {
 
-    use crate::cartridge::{Cartridge, CatridgeType};
+    use crate::cartridge::Cartridge;
 
-    use super::*;
     #[test]
     fn test_mbc1_rom_loading() {
         let cartridge = Cartridge::new("src/roms/Legend of Zelda.gb").unwrap();
-        let mut mbc_mapper = MbcMapper::new(
-            cartridge.mbc.unwrap(),
-            cartridge.rom_size,
-            cartridge.cartrigde_type[1] == CatridgeType::Ram,
-        );
+        let mut mbc_mapper = cartridge.mapper.unwrap();
         // Enabling the ram
         mbc_mapper.handle_write(0x0023, 0b1010);
         // Writing to the BANK1 Register
@@ -179,11 +158,7 @@ mod test {
     #[test]
     fn test_mbc1_ram_loading() {
         let cartridge = Cartridge::new("src/roms/Legend of Zelda.gb").unwrap();
-        let mut mbc_mapper = MbcMapper::new(
-            cartridge.mbc.unwrap(),
-            cartridge.rom_size,
-            cartridge.cartrigde_type[1] == CatridgeType::Ram,
-        );
+        let mut mbc_mapper = cartridge.mapper.unwrap();
         // Enabling the ram
         mbc_mapper.handle_write(0x0023, 0b1010);
         // Writing to the BANK1 Register
