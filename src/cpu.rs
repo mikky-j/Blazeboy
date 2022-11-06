@@ -445,8 +445,8 @@ where
                 }
             }
             a16 => {
+                let address = self.fetch_data_16bit()?;
                 if self.registers.check_condition(self.instruction.cond_type) {
-                    let address = self.fetch_data_16bit()?;
                     self.registers.set_16bit(Registers::PC, address);
                 }
             }
@@ -458,8 +458,10 @@ where
     fn jr(&mut self) -> CpuResult<()> {
         match self.instruction.address_mode {
             r8 => {
+                let data = self.fetch_data()?;
                 if self.registers.check_condition(self.instruction.cond_type) {
-                    let offset = i8::from_le_bytes([self.fetch_data()?]);
+                    let offset = i8::from_le_bytes([data]);
+                    println!("The value is {offset}");
                     let pc = self.registers.get_16bit(Registers::PC);
                     self.registers
                         .set_16bit(Registers::PC, (pc as i32 + offset as i32).abs() as u16);
@@ -473,8 +475,8 @@ where
     fn call(&mut self) -> CpuResult<()> {
         match self.instruction.address_mode {
             a16 => {
+                let data = self.fetch_data_16bit()?;
                 if self.registers.check_condition(self.instruction.cond_type) {
-                    let data = self.fetch_data_16bit()?;
                     let (hi, lo) = split_16bit(self.registers.get_16bit(Registers::PC));
                     let sp = self.registers.get_16bit(Registers::SP);
                     self.write(sp - 1, hi)?;
@@ -676,7 +678,7 @@ where
                     self.registers.set_16bit(register, value.wrapping_sub(1));
                 } else {
                     let value = self.registers.get_8bit(register);
-                    let half_carry = (value & 0xf) - 1 == 0x10;
+                    let half_carry = value & 0xf == 0;
                     self.registers.set_8bit(register, value.wrapping_sub(1));
                     let flags = [
                         Flags::HalfCarry(half_carry),
@@ -1247,5 +1249,36 @@ where
             _ => unsupported_params!(&self),
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::{fs::File, io::BufReader};
+
+    use crate::{cartridge::Cartridge, io_registers, memory::Memory, wrap_with_wrapper};
+
+    use super::*;
+    #[test]
+    fn test_memory() {
+        let cartridge = Cartridge::new("src/roms/cpu_instrs.gb").unwrap();
+        let ppu_registers = wrap_with_wrapper(crate::ppu_registers::PPURegisters::new());
+        let io_registers = wrap_with_wrapper(io_registers::IORegisters::default());
+        let boot_file = File::open("src/roms/boot.gb").unwrap();
+        let boot_rom = BufReader::with_capacity(256, boot_file);
+        let memory = Memory::new(
+            cartridge,
+            boot_rom,
+            io_registers.clone(),
+            ppu_registers.clone(),
+        );
+        let mem_ref = wrap_with_wrapper(memory);
+        let cpu = Cpu::new(mem_ref.clone());
+        cpu.memory
+            .borrow_mut()
+            .ppu_registers
+            .borrow_mut()
+            .write(0xFF40, 0x91)
+            .unwrap();
     }
 }

@@ -5,6 +5,7 @@ mod instruction;
 mod instruction_data;
 mod interrupt;
 mod io_registers;
+mod mbc_mapper;
 mod memory;
 mod ppu;
 mod ppu_registers;
@@ -134,12 +135,13 @@ macro_rules! set_bit {
     }};
 }
 
-/// This is a macro that gets all the bits of a number up until a particular bit position
+/// This is a macro that gets all the bits of a number up until a particular bit position<br>
+/// For example, `get_bits(_, 3)` will get the last 3 bits of a number
 /// ```rust
 /// use gameboy_emulator::get_bits;
 /// fn main() {
-///     let number: u8 = 0b11111111;
-///     assert_eq!(get_bits!(number, 3), 0b111);
+///     let number: u8 = 0b11111011;
+///     assert_eq!(get_bits!(number, 3), 0b011);
 /// }
 /// ```
 #[macro_export]

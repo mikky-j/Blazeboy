@@ -30,6 +30,12 @@ impl Display for MemoryError {
         output.fmt(f)
     }
 }
+
+impl From<CartridgeError> for MemoryError {
+    fn from(error: CartridgeError) -> Self {
+        MemoryError::CartridgeError(error)
+    }
+}
 pub struct Memory {
     wram: [u8; 0x2000],
     hram: [u8; 0x7f],
@@ -37,7 +43,7 @@ pub struct Memory {
     booting: bool,
     cartridge: Cartridge,
     io_registers: Wrapper<IORegisters>,
-    ppu_registers: Wrapper<PPURegisters>,
+    pub ppu_registers: Wrapper<PPURegisters>,
 }
 
 impl Memory {
@@ -64,23 +70,18 @@ impl Bus for Memory {
         match address {
             0x0000..=0x00FF => {
                 if self.booting {
-                    let vector = crate::cartridge::read(&mut self.boot_rom, address as usize, 1)
-                        .map_err(|v| MemoryError::CartridgeError(v))?;
+                    let vector = crate::cartridge::read(&mut self.boot_rom, address as usize, 1)?;
+                    // .map_err(|v| MemoryError::CartridgeError(v))?;
                     return Ok(vector[0]);
                 } else {
-                    return self
-                        .cartridge
-                        .cart_read(address)
-                        .map_err(|v| MemoryError::CartridgeError(v));
+                    return Ok(self.cartridge.cart_read(address)?);
+                    // .map_err(|v| MemoryError::CartridgeError(v));
                 }
             }
 
             //? ROM DATA
             0x0100..=0x7FFF => {
-                return self
-                    .cartridge
-                    .cart_read(address)
-                    .map_err(|v| MemoryError::CartridgeError(v));
+                return Ok(self.cartridge.cart_read(address)?);
             }
 
             //? VIDEO RAM
@@ -90,10 +91,7 @@ impl Bus for Memory {
 
             //? CARTRIDGE RAM
             0xA000..=0xBFFF => {
-                return self
-                    .cartridge
-                    .cart_read(address)
-                    .map_err(|v| MemoryError::CartridgeError(v));
+                return Ok(self.cartridge.cart_read(address)?);
             }
 
             //? WORK RAM
