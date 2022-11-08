@@ -1,19 +1,38 @@
 use crate::Bus;
 
+/// This is a struct that holds the all the values that PPU use
 pub struct PPURegisters {
     pub lcdc: u8,
     pub stat: u8,
+    /// This specifies the offset in the x direction of the viewport starting from the left
     pub scx: u8,
+    /// This specifies the offset in the y direction of the viewport starting from the top
     pub scy: u8,
+    /// This is the current scanline that the PPU is working on
     pub ly: u8,
     pub lyc: u8,
     pub dma: u8,
     pub bgp: u8,
     pub pallete_0: u8,
     pub pallete_1: u8,
+    /// This specifies the offset in the x direction of the window starting from the left<br>
+    /// It is stored in memory location `0xFF4B`<br>
+    /// In order for a window to be at the leftmost edge of the screen it must
+    /// have a value that is `>= 7`<br>
+    /// If it's value is less than 7 then it would render the window of screen
+    /// with `7-WX` columns off the screen
     pub wx: u8,
+    /// This specifies the offset in the y direction of the window starting from the top<br>
+    /// It is stored in memory location `0xFF4A`
     pub wy: u8,
+    /// This is a section of memory that holds all the pixels<br>
+    /// It is divided into multiple sections:<br>
+    /// - `0x8000 - 0x97FF` - Tile Data
+    /// - `0x9800 - 0x9BFF` - Background Map/ Window Map (This can change based on the addressing mode)
+    /// - `0x9C00 - 0x9FFF` - Background Map/ Window Map (This can change based on the addressing mode)
     pub vram: [u8; 0x2000],
+    /// This is a section of memory that holds all the information about sprites.
+    /// The OAM can hold up to 40 Sprites
     pub oam: [u8; 0xa0],
 }
 
@@ -59,8 +78,8 @@ impl Bus for PPURegisters {
             0xFF47 => self.bgp,
             0xFF48 => self.pallete_0,
             0xFF49 => self.pallete_1,
-            0xFF4A => self.wx,
-            0xFF4B => self.wy,
+            0xFF4A => self.wy,
+            0xFF4B => self.wx,
             _ => return Err(crate::MemoryError::InvalidRead(address)),
         };
         Ok(value)
@@ -86,8 +105,8 @@ impl Bus for PPURegisters {
             0xFF47 => self.bgp = value,
             0xFF48 => self.pallete_0 = value,
             0xFF49 => self.pallete_1 = value,
-            0xFF4A => self.wx = value,
-            0xFF4B => self.wy = value,
+            0xFF4A => self.wy = value,
+            0xFF4B => self.wx = value,
             _ => return Err(crate::MemoryError::InvalidRead(address)),
         }
         Ok(())
