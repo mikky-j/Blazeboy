@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::vec;
 
 use crate::cpu_registers::{CpuRegisters, Flags, Registers};
@@ -9,6 +10,20 @@ pub enum InstructionConditions {
     Z,
     NC,
     NZ,
+}
+
+impl Display for InstructionConditions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use InstructionConditions::*;
+        let result = match self {
+            None => "",
+            C => "C",
+            Z => "Z",
+            NC => "NC",
+            NZ => "NZ",
+        };
+        result.fmt(f)
+    }
 }
 
 impl InstructionConditions {
@@ -56,6 +71,35 @@ impl Instruction {
         self.register1 = Registers::get_register_left_cb(opcode);
         self.register2 = Registers::get_register_right_cb(opcode);
         self.cond_type = InstructionConditions::None;
+    }
+
+    /// A method to get the instruction parms
+    pub fn get_instuction_params(&self) -> String {
+        let result = match self.address_mode {
+            AddressingMode::Impl => String::new(),
+            AddressingMode::Reg_d16 => format!("{} d16", self.register1),
+            AddressingMode::Memreg_Reg => format!("({}) {}", self.register1, self.register2),
+            AddressingMode::Reg => format!("{}", self.register1),
+            AddressingMode::Reg_d8 => format!("{} d8", self.register1),
+            AddressingMode::a16_Reg => format!("a16 {}", self.register2),
+            AddressingMode::Reg_Reg => format!("{} {}", self.register1, self.register2),
+            AddressingMode::Reg_Memreg => format!("{} ({})", self.register1, self.register2),
+            AddressingMode::d8 => self.address_mode.to_string(),
+            AddressingMode::r8 => self.address_mode.to_string(),
+            AddressingMode::HLI_Reg => format!("HL+ {}", self.register2),
+            AddressingMode::Reg_HLI => format!("{} HL+", self.register1),
+            AddressingMode::HLD_Reg => format!("HL- {}", self.register2),
+            AddressingMode::Memreg => format!("({})", self.register1),
+            AddressingMode::Memreg_d8 => format!("({}) d8", self.register1),
+            AddressingMode::Reg_HLD => format!("{} HL-", self.register1),
+            AddressingMode::a16 => self.address_mode.to_string(),
+            AddressingMode::a8_Reg => format!("a8 {}", self.register2),
+            AddressingMode::Reg_r8 => format!("{} r8", self.register1),
+            AddressingMode::Reg_a8 => format!("{} a8", self.register1),
+            AddressingMode::Reg_Reg_r8 => format!("{} {} r8", self.register1, self.register2),
+            AddressingMode::Reg_a16 => format!("{} a16", self.register1),
+        };
+        result
     }
 
     /// This method returns how many cycles an instruction would take by using it's addressing mode
