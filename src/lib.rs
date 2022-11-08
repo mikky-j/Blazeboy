@@ -92,8 +92,8 @@ impl Emulator {
         loop {
             self.cpu.borrow_mut().execute()?;
             self.ppu.execute().map_err(|v| EmulatorError::PPUError(v))?;
-            self.master_interrupt.borrow_mut().handle_interrupt()?
-            // std::thread::sleep(std::time::Duration::from_millis(250))
+            self.master_interrupt.borrow_mut().handle_interrupt()?;
+            std::thread::sleep(std::time::Duration::from_millis(100))
         }
     }
 }
@@ -115,22 +115,21 @@ macro_rules! get_bit {
 
 /// This is a macro that sets a bit of a number either to 1 or 0
 /// ```rust
-/// use gameboy_emulator::{clear_bits, get_bits};
 /// use gameboy_emulator::set_bit;
 /// fn main() {
-///     let number: u8 = 0b11111111;
-///     assert_eq!(set_bit!(number, 3, false), 0b11111011);
+///     let number: u8 = 0b110;
+///     let result = set_bit!(number, 2, false);
+///     println!("Result: {result:08b}");
+///     assert_eq!(result, 0b010);
 /// }
 /// ```
 #[macro_export]
 macro_rules! set_bit {
     ($value:expr, $bit:expr, $on: expr) => {{
-        use crate::{clear_bits, get_bits};
         if $on {
             $value | 1 << $bit
         } else {
-            let end = get_bits!($value, if $bit > 0 { $bit - 1 } else { $bit });
-            clear_bits!($value, $bit) | end
+            $value & !(1 << $bit)
         }
     }};
 }
@@ -140,8 +139,10 @@ macro_rules! set_bit {
 /// ```rust
 /// use gameboy_emulator::get_bits;
 /// fn main() {
-///     let number: u8 = 0b11111011;
-///     assert_eq!(get_bits!(number, 3), 0b011);
+///     let number: u8 = 0b01111011;
+///     let result = get_bits!(number, 2);
+///     println!("The Result is {result:08b}");
+///     assert_eq!(result, 0b11);
 /// }
 /// ```
 #[macro_export]
@@ -155,18 +156,18 @@ macro_rules! get_bits {
 /// ```rust
 /// use gameboy_emulator::clear_bits;
 /// fn main() {
-///     let number: u8 = 0b1111111;
-///     assert_eq!(clear_bits!(number, 6), 0b1000000);
+///     let number: u8 = 0b111;
+///     assert_eq!(clear_bits!(number, 1), 0b100);
 /// }
 /// ```
 #[macro_export]
 macro_rules! clear_bits {
     ($x:expr, $bit_pos:expr) => {
-        ($x >> $bit_pos) << $bit_pos
+        (($x >> $bit_pos) & (!0) ^ 1) << $bit_pos
     };
 }
 /// This constructs a 16 bit value in the following way
-/// ```rust,noplayground
+/// ```rust,no_run
 /// hi_byte << 8 | lo_byte
 /// ```
 pub fn construct_16bit(hi_byte: u8, lo_byte: u8) -> u16 {
