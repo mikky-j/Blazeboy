@@ -123,6 +123,28 @@ impl CpuRegisters {
         }
     }
 
+    /// This fuction is used for debugging purposes
+    /// Todo: Remove this function once cpu is fully verified
+    pub fn print_current_flags(&self) -> String {
+        let mut result = String::new();
+        for i in 4..=7 {
+            if get_bit!(self.f, i) == 1 {
+                match i {
+                    4 => result.push_str("Carry"),
+                    5 => result.push_str("Half Carry,"),
+                    6 => result.push_str("Subtraction,"),
+                    7 => result.push_str("Zero, "),
+                    _ => panic!("Not supported flag {i}"),
+                }
+            }
+        }
+        if result.len() > 0 {
+            result
+        } else {
+            String::from("No flags set")
+        }
+    }
+
     pub fn get_flag(&self, flag: Flags) -> bool {
         use Flags::*;
         match flag {
@@ -183,7 +205,7 @@ impl Display for Registers {
             PC => "PC",
             None => "None",
         };
-    write!(f, "{}", value)
+        write!(f, "{}", value)
     }
 }
 
