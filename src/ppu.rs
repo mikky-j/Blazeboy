@@ -418,7 +418,7 @@ impl Ppu {
             };
             let tile_data_area = tile_data_area - 0x8000;
             let bg_tile_map_area = bg_tile_map_area - 0x8000;
-            let window_tile_map = window_tile_map_area - 0x8000;
+            let window_tile_map_area = window_tile_map_area - 0x8000;
 
             // WINDOW RENDERING
             // This means that we are inside a window
