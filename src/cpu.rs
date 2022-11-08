@@ -229,9 +229,11 @@ where
     }
 
     pub fn show_debug_output(&self) -> CpuResult<()> {
-        println!("{:04x}: {:<5} ({:02x} {:02x} {:02x}) AF: {:04x} BC: {:04x} DE: {:04x} HL: {:04x} SP: {:04x}",
+        println!("{:04x}: {} {} {:<7} ({:02X} {:02X} {:02X}) AF: {:04X} BC: {:04X} DE: {:04X} HL: {:04X} SP: {:04X}",
             self.registers.get_16bit(Registers::PC) - 1,
             self.instruction.instruction_type,
+            self.instruction.cond_type,
+            self.instruction.get_instuction_params(),
             self.opcode,
             self.read(self.registers.get_16bit(Registers::PC))?,
             self.read(self.registers.get_16bit(Registers::PC)+1)?,
@@ -461,7 +463,6 @@ where
                 let data = self.fetch_data()?;
                 if self.registers.check_condition(self.instruction.cond_type) {
                     let offset = i8::from_le_bytes([data]);
-                    println!("The value is {offset}");
                     let pc = self.registers.get_16bit(Registers::PC);
                     self.registers
                         .set_16bit(Registers::PC, (pc as i32 + offset as i32).abs() as u16);
@@ -679,10 +680,12 @@ where
                 } else {
                     let value = self.registers.get_8bit(register);
                     let half_carry = value & 0xf == 0;
-                    self.registers.set_8bit(register, value.wrapping_sub(1));
+                    let result = value.wrapping_sub(1);
+                    println!("The result is {result:02x}");
+                    self.registers.set_8bit(register, result);
                     let flags = [
                         Flags::HalfCarry(half_carry),
-                        Flags::Zero(value.wrapping_sub(1) == 0),
+                        Flags::Zero(result == 0),
                         Flags::Subtraction(true),
                     ];
                     self.registers.set_flags(&flags);
