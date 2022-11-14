@@ -91,7 +91,7 @@ impl Emulator {
     pub fn run(&mut self) -> Result<(), EmulatorError> {
         loop {
             self.cpu.borrow_mut().execute()?;
-            self.ppu.execute().map_err(|v| EmulatorError::PPUError(v))?;
+            // self.ppu.execute().map_err(|v| EmulatorError::PPUError(v))?;
             self.master_interrupt.borrow_mut().handle_interrupt()?;
             std::thread::sleep(std::time::Duration::from_millis(100))
         }
@@ -168,7 +168,11 @@ macro_rules! clear_bits {
 }
 /// This constructs a 16 bit value in the following way
 /// ```rust,no_run
-/// hi_byte << 8 | lo_byte
+/// use gameboy_emulator::construct_16bit;
+/// fn main() {
+///     let numbers = construct_16bit(0xEF,0xFF);
+///     assert_eq!(numbers, 0xEFFF);
+/// }
 /// ```
 pub fn construct_16bit(hi_byte: u8, lo_byte: u8) -> u16 {
     (hi_byte as u16) << 8 | lo_byte as u16
