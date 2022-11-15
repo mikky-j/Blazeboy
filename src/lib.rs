@@ -1,6 +1,7 @@
 mod cartridge;
 mod cpu;
 mod cpu_registers;
+mod debugger;
 mod instruction;
 mod instruction_data;
 mod interrupt;
@@ -29,6 +30,8 @@ pub type InterruptRef = Wrapper<Interrupt<Cpu<Memory>>>;
 pub fn wrap_with_wrapper<T>(value: T) -> Wrapper<T> {
     Rc::new(RefCell::new(value))
 }
+
+pub use debugger::run;
 
 pub enum EmulatorError {
     CPUError(CpuError),

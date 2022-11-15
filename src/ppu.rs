@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::{construct_16bit, get_bit, ppu_registers::PPURegisters, InterruptRef, Wrapper};
+use crate::{get_bit, ppu_registers::PPURegisters, InterruptRef, Wrapper};
 
 /// This is the screen size for the Gameboy Screen
 const SCREEN_SIZE: usize = 160 * 144;
@@ -30,6 +30,7 @@ enum TileType {
     Tall,
 }
 
+/// TODO: Add Error Handling
 pub enum PPUError {}
 
 impl Display for PPUError {
@@ -99,9 +100,9 @@ enum DisplayType {
 
 /// This is a representation of a sprite
 struct Sprite {
-    x: u8,
-    y: u8,
-    tile_number: u8,
+    pub x: u8,
+    pub y: u8,
+    pub tile_number: u8,
     flags: u8,
 }
 
@@ -174,6 +175,32 @@ impl PixelFetcher {
         }
     }
 
+    fn get_sprite_buffer(&self, buffer: &[Sprite]) -> Option<u16> {
+        let register = self.register.borrow();
+        let sprite = buffer
+            .iter()
+            .filter(|&sprite| {
+                self.internal_x_pos > sprite.x
+                    && self.internal_x_pos < sprite.x + 8
+                    && register.ly > sprite.y
+                    && register.ly < sprite.y + 16
+                    && LcdcFlags::get_lcdc_flag_status(register.lcdc, LcdcFlags::SpriteEnable)
+            })
+            .min_by(|&x, &y| x.x.cmp(&y.x));
+        if let Some(sprite) = sprite {
+            // This gets the current tiles for the current line of the sprite that is being
+            // rendered
+            let tile_no = sprite.tile_number as usize + ((register.ly - sprite.y) as usize * 2);
+            let tile_data_area = 0x8000;
+            let low_byte_address = tile_data_area + tile_no;
+            if sprite.get_flag_state(SpriteFlags::FlipY) {}
+            let low_byte = register.vram[low_byte_address];
+            let hi_byte = register.vram[low_byte_address + 1];
+            return Some(transform_to_line(hi_byte, low_byte));
+        }
+        None
+    }
+
     fn check_inside_window(&self) -> bool {
         let registers = self.register.borrow();
         self.internal_x_pos >= registers.wx
@@ -224,7 +251,7 @@ impl PixelFetcher {
         register.vram[tile_map_area + offset]
     }
 
-    fn fetch_tile_data(&mut self, tile_no: u8) -> u16 {
+    pub fn fetch_tile_data(&mut self, tile_no: u8) -> u16 {
         let register = self.register.borrow();
         let tile_data_area =
             if LcdcFlags::get_lcdc_flag_status(register.lcdc, LcdcFlags::BgWindowTileDataArea) {
@@ -240,9 +267,19 @@ impl PixelFetcher {
         let tile_data_low_address = (tile_no + offset) as usize;
         let tile_data_hi_address = (tile_data_low_address + 1) as usize;
         let hi_byte = register.vram[tile_data_area + tile_data_hi_address];
-        let lo_byte = register.vram[tile_data_area + tile_data_low_address];
-        construct_16bit(hi_byte, lo_byte)
+        let low_byte = register.vram[tile_data_area + tile_data_low_address];
+        transform_to_line(hi_byte, low_byte)
     }
+}
+
+/// This function takes 2 bytes and encodes them in the gameboy's 2bpp format
+fn transform_to_line(hi_byte: u8, low_byte: u8) -> u16 {
+    let mut result = 0;
+    for bit_pos in 0..8 {
+        result |= (((get_bit!(hi_byte, bit_pos) << 1) | (get_bit!(low_byte, bit_pos))) as u16)
+            << bit_pos * 2;
+    }
+    result
 }
 
 /// This is the main struct of the Pixel Processing unit that holds all the data the PPU needs
@@ -255,19 +292,26 @@ pub struct Ppu {
     sprite_buffer: Vec<Sprite>,
     /// This is the handler that handles all PPU interrupts
     interrupt_handler: InterruptRef,
-    /// This is the internal X value that is used during the pixel fetch
-    internal_x_pos: u8,
+    /// This is the pixel fetcher that fetches background/window tiles
+    pixel_fetcher: PixelFetcher,
+    /// This is the background FIFO that holds the background Pixels
+    background_fifo: u16,
+    /// This is the sprite FIFO that holds the Sprite Pixels
+    sprite_fifo: Option<u16>,
 }
 
 impl Ppu {
     /// This method returns a new instance of the Ppu Struct with default values
     pub fn new(registers: Wrapper<PPURegisters>, interrupt_handler: InterruptRef) -> Self {
+        let pixel_fetcher = PixelFetcher::new(registers.clone());
         Ppu {
             lcd: [Pixel::On; SCREEN_SIZE],
             registers,
             interrupt_handler,
             sprite_buffer: vec![],
-            internal_x_pos: 0,
+            pixel_fetcher,
+            background_fifo: 0,
+            sprite_fifo: None,
         }
     }
 
@@ -306,21 +350,14 @@ impl Ppu {
     /// - **First Step (Fetch Background/Window Tile Number)**
     ///
     fn pixel_fetcher(&mut self) {
-        let register = self.registers.borrow();
-        let bg_tile_map_area =
-            if LcdcFlags::get_lcdc_flag_status(register.lcdc, LcdcFlags::BgTileMapArea) {
-                0x9C00
-            } else {
-                0x9800
-            } - 0x8000;
-        // Getting the Tile number
-        // Fetching a background Pixel
-        let offset = if !LcdcFlags::get_lcdc_flag_status(register.lcdc, LcdcFlags::WindowEnable) {
-            (((register.scx / 8) + self.internal_x_pos) & 0x1f)
-                + (32 * (((register.ly + register.scy) & 0xFF) / 8))
-        } else {
-            0
-        };
+        let tile_no = self.pixel_fetcher.fetch_tile_no();
+        self.background_fifo = self.pixel_fetcher.fetch_tile_data(tile_no);
+        self.sprite_fifo = self.pixel_fetcher.get_sprite_buffer(&self.sprite_buffer);
+    }
+
+    /// This is the pixel FIFO. This function tests two pixels to see if
+    fn pixel_fifo(&mut self) -> u8 {
+        todo!()
     }
 }
 
