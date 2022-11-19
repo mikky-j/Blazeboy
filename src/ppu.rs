@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::{get_bit, ppu_registers::PPURegisters, InterruptRef, Wrapper};
+use crate::{clear_bits, get_bit, ppu_registers::PPURegisters, InterruptRef, Wrapper};
 
 /// This is the screen size for the Gameboy Screen
 const SCREEN_SIZE: usize = 160 * 144;
@@ -108,29 +108,22 @@ struct Sprite {
 
 /// This is a representation that can be used to get the value of a flag
 enum SpriteFlags {
+    /// This flag is used to show if the sprite should use `ObGP0` flag or the `ObGP1` flag
+    PalleteNumber,
+    /// This flag is used to show if the sprite is flipped horizontally
+    FlipX,
+    /// This flag is used to show if the sprite is flipped vertically
+    FlipY,
     /// This flag is used to determine if a sprite is rendered above the background<br>
     /// When it is not set, the sprite is always rendered above the background<br>
     /// When it is set, the background pixel with a value between 1 - 3(LowOn-Off) would be rendered above the sprite
     BgPriority,
-    /// This flag is used to show if the sprite is flipped vertically
-    FlipY,
-    /// This flag is used to show if the sprite is flipped horizontally
-    FlipX,
-    /// This flag is used to show if the sprite should use `ObGP0` flag or the `ObGP1` flag
-    PalleteNumber,
 }
 
 impl SpriteFlags {
     /// This method gets the current state of the flag from the byte
     fn get_flag_state(byte: u8, flag: Self) -> bool {
-        use SpriteFlags::*;
-        let bit: u8 = match flag {
-            BgPriority => 7,
-            FlipY => 6,
-            FlipX => 5,
-            PalleteNumber => 4,
-        };
-        get_bit!(byte, bit) == 1
+        get_bit!(byte, flag as u8 + 4) == 1
     }
 }
 
@@ -282,6 +275,23 @@ fn transform_to_line(hi_byte: u8, low_byte: u8) -> u16 {
     result
 }
 
+#[derive(Clone, Copy)]
+enum PPUMode {
+    /// The PPU enters this mode once it is done processing a line (internal-fetcher-x-pos = 160)
+    Hblank,
+    /// This PPU enters this mode once it is done filling up all the Pixels on the screen with
+    /// color. It tries to render 10 lines that don't exist
+    Vblank,
+    /// The PPU enters this mode when it is looking for sprites that are meant to be on the
+    /// current line(specified LY) that the PPU is rendering
+    OamScan,
+    /// This is where the PPU does majority of its work. In this mode, the PPU fetches pixel from
+    /// the VRAM Tile Map, uses the tile Map to get the correct tiles from the VRAM Tile Data,
+    /// checks if a Sprite should be in view, fetches the tile data and then mixes the pixels
+    /// together
+    Pushing,
+}
+
 /// This is the main struct of the Pixel Processing unit that holds all the data the PPU needs
 pub struct Ppu {
     /// This is an array of Pixels that represent a Gameboy Screen
@@ -292,6 +302,8 @@ pub struct Ppu {
     sprite_buffer: Vec<Sprite>,
     /// This is the handler that handles all PPU interrupts
     interrupt_handler: InterruptRef,
+    /// This is the current mode that the PPU is in
+    mode: PPUMode,
     /// This is the pixel fetcher that fetches background/window tiles
     pixel_fetcher: PixelFetcher,
     /// This is the background FIFO that holds the background Pixels
@@ -312,7 +324,15 @@ impl Ppu {
             pixel_fetcher,
             background_fifo: 0,
             sprite_fifo: None,
+            mode: PPUMode::OamScan,
         }
+    }
+
+    /// This is a function that changes the PPU's mode and updates the register
+    fn set_mode(&mut self, mode: PPUMode) {
+        self.mode = mode;
+        let lcdc = self.registers.borrow().lcdc;
+        self.registers.borrow_mut().lcdc = clear_bits!(lcdc, 1) | mode as u8;
     }
 
     /// This method scans the oam for sprites that should currently be on the screen<br>
@@ -347,7 +367,11 @@ impl Ppu {
 
     /// This is a method that is meant to fetch the pixels that need to be fetched<br>
     /// We have multiple steps,
-    /// - **First Step (Fetch Background/Window Tile Number)**
+    /// - **First Step (Fetch Background/Window Tile Number)**: In this step, we use the value of
+    /// the `SCX`, `LY` registers with an internal fetcher x position to know which tile number of
+    /// the background map that should be fetched.
+    /// - **Second Step(Fetch Tile Data Low)**: In this step, We use the tile number that was
+    /// fetched in the previous step to figure out
     ///
     fn pixel_fetcher(&mut self) {
         let tile_no = self.pixel_fetcher.fetch_tile_no();

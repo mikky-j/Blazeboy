@@ -61,7 +61,7 @@ where
     halted: bool,
     // stepping: bool,
     memory: Wrapper<T>,
-    registers: CpuRegisters,
+    pub registers: CpuRegisters,
     opcode: u8,
     cb: bool,
     ime: bool,
@@ -228,20 +228,34 @@ where
         }
     }
 
-    pub fn show_debug_output(&self) -> CpuResult<()> {
-        println!("{:04x}: {} {} {:<7} ({:02X} {:02X} {:02X}) AF: {:04X} BC: {:04X} DE: {:04X} HL: {:04X} SP: {:04X}",
-            self.registers.get_16bit(Registers::PC) - 1,
-            self.instruction.instruction_type,
-            self.instruction.cond_type,
-            self.instruction.get_instuction_params(),
-            self.opcode,
-            self.read(self.registers.get_16bit(Registers::PC))?,
-            self.read(self.registers.get_16bit(Registers::PC)+1)?,
+    pub fn get_register_state(&self) -> String {
+        format!(
+            "AF: {:04X} BC: {:04X} DE: {:04X} HL: {:04X} SP: {:04X}",
             self.registers.get_16bit(Registers::AF),
             self.registers.get_16bit(Registers::BC),
             self.registers.get_16bit(Registers::DE),
             self.registers.get_16bit(Registers::HL),
             self.registers.get_16bit(Registers::SP),
+        )
+    }
+
+    pub fn get_current_instruction_string(&self) -> String {
+        format!(
+            "{:04X}:{} {:<7}",
+            self.registers.get_16bit(Registers::PC).saturating_sub(1),
+            self.instruction.instruction_type,
+            self.instruction.get_instuction_params(),
+        )
+    }
+
+    pub fn show_debug_output(&self) -> CpuResult<()> {
+        println!(
+            "{} ({:02X} {:02X} {:02X}) {}",
+            self.get_current_instruction_string(),
+            self.opcode,
+            self.read(self.registers.get_16bit(Registers::PC))?,
+            self.read(self.registers.get_16bit(Registers::PC) + 1)?,
+            self.get_register_state(),
         );
         Ok(())
     }

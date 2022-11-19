@@ -1,3 +1,4 @@
+mod audio_registers;
 mod cartridge;
 mod cpu;
 mod cpu_registers;
@@ -52,7 +53,7 @@ impl Display for EmulatorError {
 }
 
 pub struct Emulator {
-    cpu: Wrapper<Cpu<Memory>>,
+    pub cpu: Wrapper<Cpu<Memory>>,
     master_interrupt: InterruptRef,
     ppu: Ppu,
 }

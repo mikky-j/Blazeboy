@@ -69,13 +69,12 @@ impl Bus for Memory {
     fn read(&mut self, address: u16) -> Result<u8, MemoryError> {
         match address {
             0x0000..=0x00FF => {
-                if self.booting {
+                let boot_rom = self.io_registers.borrow().boot_rom;
+                if boot_rom == 0 {
                     let vector = crate::cartridge::read(&mut self.boot_rom, address as usize, 1)?;
-                    // .map_err(|v| MemoryError::CartridgeError(v))?;
                     return Ok(vector[0]);
                 } else {
                     return Ok(self.cartridge.cart_read(address)?);
-                    // .map_err(|v| MemoryError::CartridgeError(v));
                 }
             }
 

@@ -1,14 +1,19 @@
-use sdl2::{event::Event, keyboard::Keycode, pixels::Color, rect::Rect, render::TextureQuery};
+use sdl2::{
+    event::Event,
+    keyboard::Keycode,
+    pixels::Color,
+    rect::Rect,
+    render::{Texture, TextureCreator, TextureQuery},
+    surface::Surface,
+    sys::SDL_Keycode,
+    ttf::Font,
+    video::WindowContext,
+};
+
+use crate::{cpu::Cpu, cpu_registers::CpuRegisters, memory::Memory, Wrapper};
 
 const SCREEN_WIDTH: u32 = 600;
 const SCREEN_HEIGHT: u32 = 600;
-
-// handle the annoying Rect i32
-macro_rules! rect(
-    ($x:expr, $y:expr, $w:expr, $h:expr) => (
-        Rect::new($x as i32, $y as i32, $w as u32, $h as u32)
-    )
-);
 
 // Scale fonts to a reasonable size when they're too big (though they might look less smooth)
 fn get_centered_rect(rect_width: u32, rect_height: u32, cons_width: u32, cons_height: u32) -> Rect {
@@ -31,13 +36,29 @@ fn get_centered_rect(rect_width: u32, rect_height: u32, cons_width: u32, cons_he
 
     let cx = (SCREEN_WIDTH as i32 - w) / 2;
     let cy = (SCREEN_HEIGHT as i32 - h) / 2;
-    rect!(cx, cy, w, h)
+    Rect::new(cx, cy, w as u32, h as u32)
 }
 
-pub fn run(font_path: &str) -> Result<(), String> {
+pub fn get_font_texture<'a>(
+    texture_creator: &'a TextureCreator<WindowContext>,
+    text: &str,
+    font: &Font,
+) -> Result<Texture<'a>, String> {
+    let surface = font
+        .render(&text)
+        .blended(Color::RGBA(255, 0, 0, 255))
+        .map_err(|e| e.to_string())?;
+    let texture = texture_creator
+        .create_texture_from_surface(surface)
+        .map_err(|e| e.to_string())?;
+    Ok(texture)
+}
+
+pub fn run(font_path: &str, cpu: Wrapper<Cpu<Memory>>) -> Result<(), String> {
     let sdl_context = sdl2::init()?;
     let video_subsys = sdl_context.video()?;
     let ttf_context = sdl2::ttf::init().map_err(|e| e.to_string())?;
+    let mut cpu = cpu.borrow_mut();
 
     let window = video_subsys
         .window("SDL2_TTF Example", SCREEN_WIDTH, SCREEN_HEIGHT)
@@ -50,34 +71,35 @@ pub fn run(font_path: &str) -> Result<(), String> {
     let texture_creator = canvas.texture_creator();
 
     // Load a font
-    let mut font = ttf_context.load_font(font_path, 32)?;
+    let mut font = ttf_context.load_font(font_path, 16)?;
     font.set_style(sdl2::ttf::FontStyle::NORMAL);
-    // render a surface, and convert it to a texture bound to the canvas
-    let surface = font
-        .render("Hello Rust! ==")
-        .blended(Color::RGBA(255, 0, 0, 255))
-        .map_err(|e| e.to_string())?;
 
-    let texture = texture_creator
-        .create_texture_from_surface(&surface)
-        .map_err(|e| e.to_string())?;
+    let mut register_texture =
+        get_font_texture(&texture_creator, &cpu.get_register_state(), &font)?;
+    let mut instruction_texture = get_font_texture(
+        &texture_creator,
+        &cpu.get_current_instruction_string(),
+        &font,
+    )?;
 
-    canvas.set_draw_color(Color::RGBA(195, 217, 255, 255));
-    canvas.clear();
+    let TextureQuery {
+        width: register_width,
+        height: register_height,
+        ..
+    } = register_texture.query();
+    let TextureQuery {
+        width: instruction_width,
+        height: instruction_height,
+        ..
+    } = instruction_texture.query();
+    let register_target_rect = Rect::new(0, 0, register_width, register_height);
 
-    let TextureQuery { width, height, .. } = texture.query();
-
-    // If the example text is too big for the screen, downscale it (and center irregardless)
-    let padding = 64;
-    let target = get_centered_rect(
-        width,
-        height,
-        SCREEN_WIDTH - padding,
-        SCREEN_HEIGHT - padding,
+    let instruction_target_rect = Rect::new(
+        ((SCREEN_WIDTH - instruction_width) / 2) as i32,
+        ((SCREEN_HEIGHT - instruction_height) / 2) as i32,
+        instruction_width + 16,
+        instruction_height,
     );
-
-    canvas.copy(&texture, None, Some(target))?;
-    canvas.present();
 
     'mainloop: loop {
         for event in sdl_context.event_pump()?.poll_iter() {
@@ -87,9 +109,44 @@ pub fn run(font_path: &str) -> Result<(), String> {
                     ..
                 }
                 | Event::Quit { .. } => break 'mainloop,
+                Event::KeyDown {
+                    keycode: Some(Keycode::Right),
+                    ..
+                } => match cpu.execute() {
+                    Err(e) => {
+                        eprintln!("{e}");
+                        break 'mainloop;
+                    }
+                    _ => {}
+                },
                 _ => {}
             }
         }
+        register_texture = get_font_texture(&texture_creator, &cpu.get_register_state(), &font)?;
+        instruction_texture = get_font_texture(
+            &texture_creator,
+            &cpu.get_current_instruction_string(),
+            &font,
+        )?;
+        if cpu.registers.get_16bit(crate::cpu_registers::Registers::PC) <= 0xA {
+            match cpu.execute() {
+                Err(e) => {
+                    eprintln!("{e}");
+                    break 'mainloop;
+                }
+                _ => {}
+            }
+        }
+
+        canvas.set_draw_color(Color::RGBA(195, 217, 255, 255));
+        canvas.clear();
+        canvas
+            .copy(&register_texture, None, Some(register_target_rect))
+            .map_err(|e| e.to_string())?;
+        canvas
+            .copy(&instruction_texture, None, Some(instruction_target_rect))
+            .map_err(|e| e.to_string())?;
+        canvas.present();
     }
 
     Ok(())

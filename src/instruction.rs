@@ -3,7 +3,7 @@ use std::vec;
 
 use crate::cpu_registers::{CpuRegisters, Flags, Registers};
 use crate::{get_bit, instruction_data::*};
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InstructionConditions {
     None,
     C,
@@ -98,6 +98,13 @@ impl Instruction {
             AddressingMode::Reg_a8 => format!("{} a8", self.register1),
             AddressingMode::Reg_Reg_r8 => format!("{} {} r8", self.register1, self.register2),
             AddressingMode::Reg_a16 => format!("{} a16", self.register1),
+        };
+        let result = if self.cond_type != InstructionConditions::None {
+            let mut res = format!("{} ", self.cond_type);
+            res.push_str(&result);
+            res
+        } else {
+            result
         };
         result
     }

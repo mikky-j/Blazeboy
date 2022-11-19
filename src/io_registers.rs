@@ -1,4 +1,7 @@
-use crate::{get_bit, interrupt::InterruptSource, set_bit, Bus, InterruptRef};
+use crate::{
+    audio_registers::AudioRegisters, get_bit, interrupt::InterruptSource, set_bit, Bus,
+    InterruptRef, Wrapper,
+};
 
 #[derive(Default)]
 pub struct IORegisters {
@@ -12,7 +15,7 @@ pub struct IORegisters {
     // 0xFF0F
     pub interrupt_flag: u8,
     // 0xFF10 - 0xFF26
-    pub sound: [u8; 23],
+    pub audio_register: Wrapper<AudioRegisters>,
     // 0xFF30 - 0xFF3F
     pub wave_pattern: [u8; 16],
     // 0xFF4F
@@ -98,13 +101,8 @@ impl Bus for IORegisters {
                 return Ok(self.timer_divider[offset as usize]);
             }
             0xFF0F => return Ok(self.interrupt_flag),
-            0xFF10..=0xFF26 => {
-                let offset = address - 0xFF10;
-                return Ok(self.sound[offset as usize]);
-            }
-            0xFF30..=0xFF3F => {
-                let offset = address - 0xFF30;
-                return Ok(self.wave_pattern[offset as usize]);
+            0xFF10..=0xFF26 | 0xFF30..=0xFF3F => {
+                return self.audio_register.borrow_mut().read(address)
             }
             0xFF4F => return Ok(self.vram_bank_select),
             0xFF50 => return Ok(self.boot_rom),
@@ -143,15 +141,8 @@ impl Bus for IORegisters {
                 self.handle_interrupt(value);
                 Ok(())
             }
-            0xFF10..=0xFF26 => {
-                let offset = address - 0xFF10;
-                self.sound[offset as usize] = value;
-                Ok(())
-            }
-            0xFF30..=0xFF3F => {
-                let offset = address - 0xFF30;
-                self.wave_pattern[offset as usize] = value;
-                Ok(())
+            0xFF10..=0xFF26 | 0xFF30..=0xFF3F => {
+                return self.audio_register.borrow_mut().write(address, value)
             }
             0xFF4F => {
                 self.vram_bank_select = value;
