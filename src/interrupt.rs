@@ -1,3 +1,5 @@
+use std::{collections::VecDeque, fmt::Display};
+
 use crate::{cpu::CpuError, io_registers::IORegisters, EmulatorError, Wrapper};
 
 pub trait InterruptHandler<T: Into<EmulatorError>> {
@@ -12,6 +14,33 @@ pub enum InterruptSource {
     Timer,
     Serial,
     Joypad,
+}
+
+impl Display for InterruptSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self {
+            InterruptSource::Vblank => "Vblank",
+            InterruptSource::LcdStat => "LcdStat",
+            InterruptSource::Timer => "Timer",
+            InterruptSource::Serial => "Serial",
+            InterruptSource::Joypad => "Joypad",
+        }
+        .fmt(f)
+    }
+}
+
+impl From<u8> for InterruptSource {
+    fn from(value: u8) -> Self {
+        use InterruptSource::*;
+        match value {
+            0 => Vblank,
+            1 => LcdStat,
+            2 => Timer,
+            3 => Serial,
+            4 => Joypad,
+            _ => unreachable!(),
+        }
+    }
 }
 
 impl InterruptSource {
@@ -33,7 +62,7 @@ where
 {
     handler: Wrapper<T>,
     io_registers: Wrapper<IORegisters>,
-    interrupt_buffer: Vec<InterruptSource>,
+    interrupt_buffer: VecDeque<InterruptSource>,
 }
 
 impl<T> Interrupt<T>
@@ -44,27 +73,28 @@ where
         Interrupt {
             handler,
             io_registers,
-            interrupt_buffer: vec![],
+            interrupt_buffer: VecDeque::with_capacity(5),
         }
     }
 
-    pub fn add_sources(&mut self, sources: Vec<InterruptSource>) {
-        for source in sources {
-            self.interrupt_buffer.insert(0, source);
-        }
+    #[inline]
+    pub fn add_source(&mut self, source: InterruptSource) {
+        self.interrupt_buffer.push_front(source);
     }
 
+    ///! THIS WILL CAUSE PROBLEMS IN THE FUTURE
     pub fn handle_interrupt(&mut self) -> Result<(), CpuError> {
-        if self.interrupt_buffer.len() > 0 {
-            let interrupt_source = self.interrupt_buffer.pop().unwrap();
+        if let Some(interrupt_source) = self.interrupt_buffer.pop_back() {
             if !self.handler.borrow().get_interrupt_status()
                 && !self
                     .io_registers
                     .borrow()
                     .check_interrupt_enable(interrupt_source)
             {
+                self.add_source(interrupt_source);
                 return Ok(());
             }
+            println!("Handling `{interrupt_source}` interrupt");
             self.handler
                 .borrow_mut()
                 .handle_interrupt(interrupt_source.get_address())?;

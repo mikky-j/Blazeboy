@@ -3,7 +3,7 @@ use crate::{memory::MemoryError, Bus};
 #[derive(Default)]
 pub struct AudioRegisters {
     /// Address- 0xFF10-0xFF14
-    nr1: [u8; 4],
+    nr1: [u8; 5],
     /// Address- 0xFF16-0xFF19
     nr2: [u8; 4],
     /// Address- 0xFF1A-0xFF1E

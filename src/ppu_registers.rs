@@ -1,4 +1,4 @@
-use crate::Bus;
+use crate::{clear_bits, get_bits, Bus};
 
 /// This is a struct that holds the all the values that PPU use
 pub struct PPURegisters {
@@ -34,6 +34,10 @@ pub struct PPURegisters {
     /// This is a section of memory that holds all the information about sprites.
     /// The OAM can hold up to 40 Sprites
     pub oam: [u8; 0xa0],
+    /// This is a flag that represents if the CPU can read and write to the Vram
+    pub rw_access_vram: bool,
+    /// This is a flag that represents if the CPU can read and write to the OAM
+    pub rw_access_oam: bool,
 }
 
 impl PPURegisters {
@@ -41,6 +45,8 @@ impl PPURegisters {
         PPURegisters {
             lcdc: 0,
             stat: 0,
+            rw_access_vram: true,
+            rw_access_oam: true,
             scx: 0,
             scy: 0,
             ly: 0,
@@ -61,12 +67,22 @@ impl Bus for PPURegisters {
     fn read(&mut self, address: u16) -> Result<u8, crate::memory::MemoryError> {
         let value = match address {
             0x8000..=0xa000 => {
-                let offset = address - 0x8000;
-                self.vram[offset as usize]
+                if self.rw_access_vram {
+                    let offset = address - 0x8000;
+                    self.vram[offset as usize]
+                } else {
+                    println!("Access Denied!!! Access to the Vram is shut Off. Default value of `0xFF` is being read");
+                    0xFF
+                }
             }
             0xFE00..=0xFE9F => {
-                let offset = address - 0xFFE0;
-                self.oam[offset as usize]
+                if self.rw_access_oam {
+                    let offset = address - 0xFFE0;
+                    self.oam[offset as usize]
+                } else {
+                    println!("Access Denied!!! Access to the OAM is shut Off. Default value of `0xFF` is being read");
+                    0xFF
+                }
             }
             0xFF40 => self.lcdc,
             0xFF41 => self.stat,
@@ -82,21 +98,29 @@ impl Bus for PPURegisters {
             0xFF4B => self.wx,
             _ => return Err(crate::MemoryError::InvalidRead(address)),
         };
-        Ok(value)
+        return Ok(value);
     }
 
     fn write(&mut self, address: u16, value: u8) -> Result<(), crate::memory::MemoryError> {
         match address {
             0x8000..=0xa000 => {
-                let offset = address - 0x8000;
-                self.vram[offset as usize] = value;
+                if self.rw_access_vram {
+                    let offset = address - 0x8000;
+                    self.vram[offset as usize] = value;
+                } else {
+                    println!("Access to the Vram is shut Off. No values were updated");
+                }
             }
             0xFE00..=0xFE9F => {
-                let offset = address - 0xFFE0;
-                self.oam[offset as usize] = value;
+                if self.rw_access_oam {
+                    let offset = address - 0xFFE0;
+                    self.oam[offset as usize] = value;
+                } else {
+                    println!("Access to the Oam is shut Off. No values were updated");
+                }
             }
             0xFF40 => self.lcdc = value,
-            0xFF41 => self.stat = value,
+            0xFF41 => self.stat = clear_bits!(value, 2) | get_bits!(self.stat, 3),
             0xFF42 => self.scx = value,
             0xFF43 => self.scy = value,
             0xFF44 => self.ly = value,

@@ -6,24 +6,16 @@ use crate::{
     get_bit,
     instruction::{Instruction, InstructionConditions},
     instruction_data::AddressingMode::*,
-    instruction_data::InstructionType,
+    instruction_data::{AddressingMode, InstructionType},
     interrupt::InterruptHandler,
     memory::MemoryError,
     set_bit, split_16bit, Bus, EmulatorError, Wrapper,
 };
 
-macro_rules! unsupported_params {
-    ($x: expr) => {
-        panic!(
-            "Addressing mode `{}` not supported for `{}` instruction",
-            $x.instruction.address_mode, $x.instruction.instruction_type
-        )
-    };
-}
-
 /// This is an enum that holds all possible CPU Runtime Errors
 pub enum CpuError {
     InvalidRegister(String),
+    InvalidInstructionArguments(AddressingMode, InstructionType),
     MemoryError(MemoryError),
 }
 
@@ -31,12 +23,16 @@ impl Display for CpuError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CpuError::InvalidRegister(v) => {
-                write!(f, "There was an error that involved a register\nError: {v}")
+                format!("There was an error that involved a register\nError: {v}")
             }
             CpuError::MemoryError(v) => {
-                write!(f, "A MemoryError was thrown by Cpu.\nError: `{v}`")
+                format!("A MemoryError was thrown by Cpu.\nError: `{v}`")
+            }
+            CpuError::InvalidInstructionArguments(mode, instruction) => {
+                format!("Addressing mode `{mode}` not supported for `{instruction}` instruction")
             }
         }
+        .fmt(f)
     }
 }
 
@@ -84,8 +80,9 @@ where
             self.write(sp - 1, hi)?;
             self.write(sp - 2, lo)?;
             self.registers.set_16bit(Registers::SP, sp - 2);
+            // Setting the program counter to the return vector
             self.registers.set_16bit(Registers::PC, return_vector);
-            // Setting the Interrupt Master Enable to false so that
+            // Setting the Interrupt Master Enable to false so that no other interrupts can happen
             self.ime = false;
         }
         Ok(())
@@ -100,12 +97,19 @@ impl<T> Cpu<T>
 where
     T: Bus,
 {
+    #[inline]
+    pub fn throw_invalid_instruction_error(&self) -> CpuError {
+        CpuError::InvalidInstructionArguments(
+            self.instruction.address_mode,
+            self.instruction.instruction_type,
+        )
+    }
     pub fn new(memory: Wrapper<T>) -> Self {
         Cpu {
             halted: false,
             // stepping: true,
-            ime: true,
-            memory: memory,
+            ime: false,
+            memory,
             cycles: 0,
             registers: CpuRegisters::new(),
             cb: false,
@@ -138,7 +142,7 @@ where
     }
 
     fn write(&self, address: u16, value: u8) -> CpuResult<()> {
-        println!("Writing {value:02x} to {address:04x}");
+        // println!("Writing {value:02x} to {address:04x}");
         self.memory.borrow_mut().write(address, value)?;
         Ok(())
     }
@@ -265,14 +269,16 @@ where
     }
 
     pub fn execute(&mut self) -> CpuResult<()> {
-        if self.cycles <= 1 {
-            self.fetch()?;
-            self.show_debug_output()?;
-            self.update_cycle();
-            self.execute_instruction()?;
-            self.handle_dma_transfer()?;
+        if !self.halted {
+            if self.cycles == 0 {
+                self.fetch()?;
+                // self.show_debug_output()?;
+                self.update_cycle();
+                self.execute_instruction()?;
+                self.handle_dma_transfer()?;
+            }
+            self.cycles -= 1;
         }
-        self.cycles -= 1;
         Ok(())
     }
 
@@ -385,7 +391,7 @@ where
                 ];
                 self.registers.set_flags(&flags);
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -410,7 +416,7 @@ where
                 self.write(address, data)?;
             }
 
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -424,7 +430,7 @@ where
                 self.write(sp - 2, lo)?;
                 self.registers.set_16bit(Registers::SP, sp - 2);
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -441,10 +447,10 @@ where
                     self.registers.set_16bit(first_reg, data);
                     self.registers.set_16bit(Registers::SP, sp + 2);
                 } else {
-                    unsupported_params!(&self)
+                    return Err(self.throw_invalid_instruction_error());
                 }
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -457,7 +463,7 @@ where
                     let address = self.registers.get_16bit(first_reg);
                     self.registers.set_16bit(Registers::PC, address);
                 } else {
-                    unsupported_params!(&self)
+                    return Err(self.throw_invalid_instruction_error());
                 }
             }
             a16 => {
@@ -466,7 +472,7 @@ where
                     self.registers.set_16bit(Registers::PC, address);
                 }
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -482,7 +488,7 @@ where
                         .set_16bit(Registers::PC, (pc as i32 + offset as i32).abs() as u16);
                 }
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -500,7 +506,7 @@ where
                     self.registers.set_16bit(Registers::PC, data);
                 }
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -517,7 +523,7 @@ where
                     self.registers.set_16bit(Registers::SP, sp.wrapping_add(2));
                 }
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -540,7 +546,7 @@ where
                 self.registers.set_16bit(Registers::SP, sp - 2);
                 self.registers.set_16bit(Registers::PC, ret_addr as u16);
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -555,13 +561,14 @@ where
         Ok(())
     }
 
-    // Todo
     fn di(&mut self) -> CpuResult<()> {
-        Ok(())
+        Ok(self.ime = false)
     }
 
-    // Todo
+    // Todo: Fix halt bug
     fn ei(&mut self) -> CpuResult<()> {
+        println!("Enabled interrupts");
+        self.ime = true;
         Ok(())
     }
 
@@ -576,7 +583,7 @@ where
                 ];
                 self.registers.set_flags(&flags);
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -591,7 +598,7 @@ where
                 ];
                 self.registers.set_flags(&flags);
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -637,7 +644,7 @@ where
                 self.registers.set_8bit(Registers::A, !data);
                 self.registers.set_flags(&flags);
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -679,7 +686,7 @@ where
                 ];
                 self.registers.set_flags(&flags);
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -695,7 +702,6 @@ where
                     let value = self.registers.get_8bit(register);
                     let half_carry = value & 0xf == 0;
                     let result = value.wrapping_sub(1);
-                    println!("The result is {result:02x}");
                     self.registers.set_8bit(register, result);
                     let flags = [
                         Flags::HalfCarry(half_carry),
@@ -717,7 +723,7 @@ where
                 ];
                 self.registers.set_flags(&flags);
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -736,7 +742,7 @@ where
                 self.registers.set_flags(&flags);
                 self.registers.set_8bit(Registers::A, res);
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -754,7 +760,7 @@ where
                 self.registers.set_8bit(Registers::A, res);
                 self.registers.set_flags(&flags);
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -773,7 +779,7 @@ where
                 ];
                 self.registers.set_flags(&flags);
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -792,7 +798,7 @@ where
                 self.registers.set_8bit(Registers::A, res);
                 self.registers.set_flags(&flags);
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -852,7 +858,7 @@ where
                 self.registers.set_16bit(reg_1, value as u16);
                 self.registers.set_flags(&flags);
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -882,7 +888,7 @@ where
                 let result = Instruction::adc_8bit_base(&mut self.registers, val_1, val_2);
                 self.registers.set_8bit(reg_1, result);
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -909,7 +915,7 @@ where
                 let value = Instruction::sub_8bit_base(&mut self.registers, val_1, val_2);
                 self.registers.set_8bit(Registers::A, value);
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -938,7 +944,7 @@ where
                 let result = Instruction::sbc_8bit_base(&mut self.registers, val_1, val_2);
                 self.registers.set_8bit(reg_1, result);
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -961,7 +967,7 @@ where
                 let val_2 = self.fetch_data()?;
                 Instruction::sub_8bit_base(&mut self.registers, val_1, val_2);
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -988,7 +994,7 @@ where
                 let result = Instruction::and_8bit_base(&mut self.registers, val_1, val_2);
                 self.registers.set_8bit(Registers::A, result);
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -1015,7 +1021,7 @@ where
                 let result = Instruction::or_8bit_base(&mut self.registers, val_1, val_2);
                 self.registers.set_8bit(Registers::A, result);
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -1042,7 +1048,7 @@ where
                 let result = Instruction::xor_8bit_base(&mut self.registers, val_1, val_2);
                 self.registers.set_8bit(Registers::A, result);
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -1061,7 +1067,7 @@ where
                 let result = Instruction::rlc_8bit_base(&mut self.registers, value);
                 self.write(address, result)?;
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -1080,7 +1086,7 @@ where
                 let result = Instruction::rrc_8bit_base(&mut self.registers, value);
                 self.write(address, result)?;
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -1099,7 +1105,7 @@ where
                 let result = Instruction::rl_8bit_base(&mut self.registers, value);
                 self.write(address, result)?;
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -1117,7 +1123,7 @@ where
                 let result = Instruction::rr_8bit_base(&mut self.registers, value);
                 self.write(address, result)?;
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -1135,7 +1141,7 @@ where
                 let result = Instruction::sla_8bit_base(&mut self.registers, value);
                 self.write(address, result)?;
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -1153,7 +1159,7 @@ where
                 let result = Instruction::sra_8bit_base(&mut self.registers, value);
                 self.write(address, result)?;
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -1172,7 +1178,7 @@ where
                 let result = Instruction::swap_8bit_base(&mut self.registers, value);
                 self.write(address, result)?;
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -1191,7 +1197,7 @@ where
                 let result = Instruction::srl_8bit_base(&mut self.registers, value);
                 self.write(address, result)?;
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -1211,7 +1217,7 @@ where
                 let bit = ((row - 0x4) * 2) + if col > 0x7 { 1 } else { 0 };
                 Instruction::bit_8bit_base(&mut self.registers, value, bit);
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -1241,7 +1247,7 @@ where
                 };
                 self.write(address, result)?;
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
     }
@@ -1263,39 +1269,8 @@ where
                 let result = set_bit!(value, bit, true);
                 self.write(address, result)?;
             }
-            _ => unsupported_params!(&self),
+            _ => return Err(self.throw_invalid_instruction_error()),
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use std::{fs::File, io::BufReader};
-
-    use crate::{cartridge::Cartridge, io_registers, memory::Memory, wrap_with_wrapper};
-
-    use super::*;
-    #[test]
-    fn test_memory() {
-        let cartridge = Cartridge::new("src/roms/cpu_instrs.gb").unwrap();
-        let ppu_registers = wrap_with_wrapper(crate::ppu_registers::PPURegisters::new());
-        let io_registers = wrap_with_wrapper(io_registers::IORegisters::default());
-        let boot_file = File::open("src/roms/boot.gb").unwrap();
-        let boot_rom = BufReader::with_capacity(256, boot_file);
-        let memory = Memory::new(
-            cartridge,
-            boot_rom,
-            io_registers.clone(),
-            ppu_registers.clone(),
-        );
-        let mem_ref = wrap_with_wrapper(memory);
-        let cpu = Cpu::new(mem_ref.clone());
-        cpu.memory
-            .borrow_mut()
-            .ppu_registers
-            .borrow_mut()
-            .write(0xFF40, 0x91)
-            .unwrap();
     }
 }

@@ -40,7 +40,6 @@ pub struct Memory {
     wram: [u8; 0x2000],
     hram: [u8; 0x7f],
     boot_rom: BufReader<File>,
-    booting: bool,
     cartridge: Cartridge,
     io_registers: Wrapper<IORegisters>,
     pub ppu_registers: Wrapper<PPURegisters>,
@@ -58,7 +57,6 @@ impl Memory {
             hram: [0; 0x7f],
             cartridge,
             boot_rom,
-            booting: true,
             io_registers,
             ppu_registers,
         }

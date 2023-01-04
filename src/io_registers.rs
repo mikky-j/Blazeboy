@@ -1,8 +1,9 @@
 use crate::{
-    audio_registers::AudioRegisters, get_bit, interrupt::InterruptSource, set_bit, Bus,
-    InterruptRef, Wrapper,
+    audio_registers::AudioRegisters, get_bit, interrupt::InterruptSource, set_bit,
+    timer::TimerRegisters, Bus, InterruptRef, Wrapper,
 };
 
+// TODO: Create a new function to add an instance of AudioRegisters
 #[derive(Default)]
 pub struct IORegisters {
     interrupt: Option<InterruptRef>,
@@ -11,13 +12,11 @@ pub struct IORegisters {
     // 0xFF01 - 0xFF02
     pub serial_transfer: [u8; 2],
     // 0xFF04 - 0xFF07
-    pub timer_divider: [u8; 4],
+    pub timer_register: Wrapper<TimerRegisters>,
     // 0xFF0F
     pub interrupt_flag: u8,
-    // 0xFF10 - 0xFF26
+    // 0xFF10 - 0xFF3F
     pub audio_register: Wrapper<AudioRegisters>,
-    // 0xFF30 - 0xFF3F
-    pub wave_pattern: [u8; 16],
     // 0xFF4F
     pub vram_bank_select: u8,
     // 0xFF50
@@ -33,6 +32,16 @@ pub struct IORegisters {
 }
 
 impl IORegisters {
+    pub fn new(
+        timer_register: Wrapper<TimerRegisters>,
+        audio_register: Wrapper<AudioRegisters>,
+    ) -> Self {
+        Self {
+            timer_register,
+            audio_register,
+            ..Default::default()
+        }
+    }
     pub fn add_interrupt_handler(&mut self, interrupt: InterruptRef) {
         self.interrupt = Some(interrupt);
     }
@@ -64,27 +73,12 @@ impl IORegisters {
     }
 
     pub fn handle_interrupt(&mut self, interrupt_data: u8) {
-        use InterruptSource::*;
-        let get_source_from_bits = |data: u8| match data {
-            0 => Vblank,
-            1 => LcdStat,
-            2 => Timer,
-            3 => Serial,
-            4 => Joypad,
-            _ => panic!("An error occurred"),
-        };
-        let mut interrupt_sources = Vec::with_capacity(5);
+        let interrupt = self.interrupt.clone().unwrap();
         for i in 0..=4 {
             if get_bit!(interrupt_data, i) == 1 {
-                interrupt_sources.push(get_source_from_bits(i));
+                interrupt.borrow_mut().add_source(InterruptSource::from(i));
             }
         }
-
-        self.interrupt
-            .clone()
-            .unwrap()
-            .borrow_mut()
-            .add_sources(interrupt_sources)
     }
 }
 
@@ -96,10 +90,7 @@ impl Bus for IORegisters {
                 let offset = address - 0xFF01;
                 return Ok(self.serial_transfer[offset as usize]);
             }
-            0xFF04..=0xFF07 => {
-                let offset = address - 0xFF04;
-                return Ok(self.timer_divider[offset as usize]);
-            }
+            0xFF04..=0xFF07 => self.timer_register.borrow_mut().read(address),
             0xFF0F => return Ok(self.interrupt_flag),
             0xFF10..=0xFF26 | 0xFF30..=0xFF3F => {
                 return self.audio_register.borrow_mut().read(address)
@@ -131,11 +122,7 @@ impl Bus for IORegisters {
                 self.serial_transfer[offset as usize] = value;
                 Ok(())
             }
-            0xFF04..=0xFF07 => {
-                let offset = address - 0xFF04;
-                self.timer_divider[offset as usize] = value;
-                Ok(())
-            }
+            0xFF04..=0xFF07 => self.timer_register.borrow_mut().write(address, value),
             0xFF0F => {
                 self.interrupt_flag = value;
                 self.handle_interrupt(value);
@@ -149,6 +136,7 @@ impl Bus for IORegisters {
                 Ok(())
             }
             0xFF50 => {
+                println!("The value `{value:08b} was written to the bootrom");
                 self.boot_rom = value;
                 Ok(())
             }
@@ -167,6 +155,7 @@ impl Bus for IORegisters {
                 Ok(())
             }
             0xFFFF => {
+                println!("Enabled interrpts: `{value:08b}`");
                 self.interrupt_enable = value;
                 Ok(())
             }

@@ -11,9 +11,11 @@ mod mbc_mapper;
 mod memory;
 mod ppu;
 mod ppu_registers;
+mod timer;
 
 use std::{cell::RefCell, fmt::Display, fs::File, io::BufReader, rc::Rc};
 
+use audio_registers::AudioRegisters;
 use cartridge::{Cartridge, CartridgeError};
 use cpu::{Cpu, CpuError};
 use interrupt::Interrupt;
@@ -33,6 +35,8 @@ pub fn wrap_with_wrapper<T>(value: T) -> Wrapper<T> {
 }
 
 pub use debugger::run;
+pub use ppu::SCREEN_SIZE;
+use timer::{Timer, TimerRegisters};
 
 pub enum EmulatorError {
     CPUError(CpuError),
@@ -55,6 +59,7 @@ impl Display for EmulatorError {
 pub struct Emulator {
     pub cpu: Wrapper<Cpu<Memory>>,
     master_interrupt: InterruptRef,
+    timer: Timer,
     ppu: Ppu,
 }
 
@@ -63,7 +68,12 @@ impl Emulator {
         let cartridge =
             Cartridge::new(cart_filename).map_err(|v| EmulatorError::CatridgeError(v))?;
         let ppu_registers = wrap_with_wrapper(PPURegisters::new());
-        let io_registers = wrap_with_wrapper(io_registers::IORegisters::default());
+        let timer_register_ref = wrap_with_wrapper(TimerRegisters::new());
+        let audio_registers_ref = wrap_with_wrapper(AudioRegisters::default());
+        let io_registers = wrap_with_wrapper(io_registers::IORegisters::new(
+            timer_register_ref.clone(),
+            audio_registers_ref.clone(),
+        ));
         let boot_file = File::open("src/roms/boot.gb").map_err(|_| {
             EmulatorError::CatridgeError(CartridgeError::FileDoesNotExist(format!(
                 "src/roms/boot.gb"
@@ -84,21 +94,23 @@ impl Emulator {
         io_registers
             .borrow_mut()
             .add_interrupt_handler(interrupt_ref.clone());
-        let ppu = Ppu::new(ppu_registers.clone(), interrupt_ref.clone());
+        let timer = Timer::new(timer_register_ref.clone(), mem_ref.clone());
+        let ppu = Ppu::new(ppu_registers.clone(), mem_ref.clone());
         Ok(Emulator {
             cpu: cpu_ref,
             ppu,
+            timer,
             master_interrupt: interrupt_ref.clone(),
         })
     }
 
-    pub fn run(&mut self) -> Result<(), EmulatorError> {
-        loop {
-            self.cpu.borrow_mut().execute()?;
-            // self.ppu.execute().map_err(|v| EmulatorError::PPUError(v))?;
-            self.master_interrupt.borrow_mut().handle_interrupt()?;
-            std::thread::sleep(std::time::Duration::from_millis(100))
-        }
+    pub fn step(&mut self) -> Result<(), EmulatorError> {
+        self.cpu.borrow_mut().execute()?;
+        self.ppu.execute()?;
+        self.master_interrupt.borrow_mut().handle_interrupt()?;
+        self.timer.tick();
+        // std::thread::sleep(std::time::Duration::from_millis(100));
+        Ok(())
     }
 }
 

@@ -10,13 +10,9 @@ fn main() {
         }
     };
 
-    // match emulator.run() {
-    //     Ok(()) => {}
-    //     Err(v) => println!("{v}"),
-    // }
     run(
         "/home/king-mikky/Downloads/Lilex/Lilex Medium Nerd Font Complete.ttf",
-        emulator.cpu.clone(),
+        emulator,
     )
     .unwrap();
 }

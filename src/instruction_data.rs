@@ -1,5 +1,5 @@
 use std::fmt::Display;
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Copy, Clone)]
 pub enum InstructionType {
     None,
     // Special Instructions
